@@ -4131,12 +4131,12 @@ const ALONG_MODEL=(function(){
   {id:'T-201',name:'中间水箱',short:'中间箱',r:{},source:'模拟假设：缓冲不改变水质，未计回流/空气CO₂'},
   {id:'D-103',name:'二级pH加药',short:'调pH',r:{},source:'模拟假设：本组指标不变；NaOH剂量、盐增量及CO₂转化未建模'},
   {id:'RO-201',name:'二级RO',short:'RO2',r:{EC:.995,TDS:.995,hard:.995,SiO2:.99,turb:.99,SDI:.9},source:'同一级RO；99.5%为元件标准NaCl值，二级系统应用及所有分指标均为模拟假设'},
-  {id:'EDI-301',name:'EDI',short:'EDI',r:{EC:.98,TDS:.98,hard:.99,SiO2:.95},source:'模拟假设：离子贡献EC/TDS98%、硬度99%、硅95%。清单§3 DuPont 45-D01915 Rev2 Table1给有条件≥15MΩ·cm，并未给本脱除率；不借用Ionpure硅率作为DuPont性能'},
+  {id:'EDI-301',name:'EDI',short:'EDI',r:{EC:.98,TDS:.98,hard:.99,SiO2:.95},source:'电导率统一取原稳态模型EDI产水（25℃），默认约15.35 MΩ·cm；DuPont EDI-310 45-D01915 Rev2：满足Table1进水条件时≥15 MΩ·cm，非实测/非全指标保证。TDS98%、硬度99%、硅95%仍仅模拟假设，手册无此保证'},
   {id:'T-301',name:'纯水箱',short:'纯水箱',r:{},source:'模拟假设：水质保持；未计储存污染/吸收CO₂，止于纯水箱'}
  ];
  function noise(t){let x=(Math.floor(t)+73129)|0;x^=x<<13;x^=x>>>17;x^=x<<5;return ((x>>>0)/4294967295)*2-1}
- function calculate(input,enabled,t,exists){const a=Object.assign({},raw,input),factor=enabled?1+.02*noise(t):1;Object.keys(a).forEach(k=>a[k]*=factor);const rows=[];let prev=a;
-  stages.forEach(s=>{if(exists&&!exists(s))return;const out=Object.assign({},prev);Object.keys(s.r).forEach(k=>{out[k]=k==='EC'?.055+Math.max(0,prev[k]-.055)*(1-s.r[k]):prev[k]*(1-s.r[k])});rows.push({id:s.id,name:s.name,short:s.short,aliases:s.aliases||[],source:s.source,in:prev,out:out,r:s.r});prev=out});
+ function calculate(input,enabled,t,exists,ediEC){const a=Object.assign({},raw,input),factor=enabled?1+.02*noise(t):1;Object.keys(a).forEach(k=>a[k]*=factor);const rows=[];let prev=a;
+  stages.forEach(s=>{if(exists&&!exists(s))return;const out=Object.assign({},prev);Object.keys(s.r).forEach(k=>{out[k]=k==='EC'?.055+Math.max(0,prev[k]-.055)*(1-s.r[k]):prev[k]*(1-s.r[k])});if(s.id==='EDI-301')out.EC=Number.isFinite(ediEC)&&ediEC>0?ediEC:1/15.35;rows.push({id:s.id,name:s.name,short:s.short,aliases:s.aliases||[],source:s.source,in:prev,out:out,r:s.r});prev=out});
   return {rows:rows,raw:a,resistivity:1/prev.EC,factor:factor};
  }
  return {raw:raw,metrics:metrics,stages:stages,noise:noise,calculate:calculate};
@@ -4144,9 +4144,9 @@ const ALONG_MODEL=(function(){
 if(typeof module!=='undefined'&&module.exports)module.exports=ALONG_MODEL;
 
 /* 侧栏2D曲线：最多4Hz；只在状态变化时重绘。无新增Three对象。 */
-const ALONG={raw:Object.assign({},ALONG_MODEL.raw),metric:'EC',wave:false,result:null,selected:0,current:0,signature:'',revision:0,mode:'run',bases:new Map()};
+const ALONG={raw:Object.assign({},ALONG_MODEL.raw),metric:'EC',wave:false,result:null,selected:0,current:0,signature:'',revision:0,mode:'run',bases:new Map(),cipOriginals:new Map()};
 const alongStyle=document.createElement('style');alongStyle.textContent='#alongPanel{flex:none;border-bottom:1px solid var(--bd);background:var(--cd);padding:8px 10px;font-size:11px}#alongPanel h3{font-size:13px;margin:0 0 4px}#alongWarning{color:#e58f92;font-weight:bold}#alongTools{display:flex;align-items:center;gap:8px;margin:5px 0}#alongTools select{max-width:110px;font-size:11px}#alongChart{display:block;width:100%;height:135px}#alongReadout{line-height:1.5;min-height:34px}#alongMode{display:flex;gap:5px;margin:5px 0}#alongMode button{flex:1;padding:3px;font-size:11px}#alongMode button.on{border-color:#6dbfca;color:#6dbfca}#alongRawFields{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}#alongRawFields label{font-size:10px}#alongRawFields input{width:100%;min-width:0;box-sizing:border-box}#alongPanel details{max-height:145px;overflow:auto}#alongSources{white-space:pre-line;line-height:1.5}#alongPanel small{color:var(--mu)}.main.fold #alongPanel{display:none}@media(max-width:1000px){#alongChart{height:105px}#alongPanel{max-height:220px;overflow:auto}}';document.head.append(alongStyle);
-const alongPanel=document.createElement('section');alongPanel.id='alongPanel';alongPanel.innerHTML='<h3>沿程水质 · 对数曲线</h3><div id="alongWarning">模拟计算（假设原水），非实测</div><div id="alongMode"><button data-along-mode="run">运行</button><button data-along-mode="flush">冲洗</button><button data-along-mode="cip">CIP</button></div><small id="alongModeNote"></small><div id="alongTools"><select id="alongMetric" aria-label="沿程指标">'+Object.keys(ALONG_MODEL.metrics).map(k=>'<option value="'+k+'">'+ALONG_MODEL.metrics[k][0]+'</option>').join('')+'</select><label><input id="alongWave" type="checkbox"> 波动 ±2%</label><small>固定种子，每秒采样</small></div><canvas id="alongChart" width="860" height="270" aria-label="模拟沿程水质对数曲线"></canvas><div id="alongReadout" role="status"></div><small id="alongFinal"></small><details><summary>修改假设原水 / 查看逐项来源</summary><p>客户表已填写的有效数值优先；其余只在此模拟补假设，不补入客户结垢面板。EC/TDS换算系数0.6为模拟假设。</p><div id="alongRawFields">'+Object.keys(ALONG_MODEL.metrics).map(k=>'<label>'+ALONG_MODEL.metrics[k].join(' ')+'<input data-along-raw="'+k+'" type="number" min="0" max="1000000" step="any" value="'+ALONG.raw[k]+'"></label>').join('')+'</div><div id="alongOrigin"></div><div id="alongDeviceValues"></div><p>仅产水侧串联 C出=C入×(1−脱除率)，不求回收率、浓水、回流或结垢。EC按25℃纯水基底0.055µS/cm+剩余离子贡献估计；电阻率=1/EC（MΩ·cm）。未计CO₂，结果偏理想；SDI百分比仅示意，非可加性水质预测。0值在对数图以底边空心点表示，读数仍为0。</p><div id="alongSources"></div></details>';
+const alongPanel=document.createElement('section');alongPanel.id='alongPanel';alongPanel.innerHTML='<h3>沿程水质 · 对数曲线</h3><div id="alongWarning">模拟计算（假设原水），非实测</div><div id="alongMode"><button data-along-mode="run">运行</button><button data-along-mode="flush">冲洗</button><button data-along-mode="cip">CIP</button></div><small id="alongModeNote"></small><div id="alongTools"><select id="alongMetric" aria-label="沿程指标">'+Object.keys(ALONG_MODEL.metrics).map(k=>'<option value="'+k+'">'+ALONG_MODEL.metrics[k][0]+'</option>').join('')+'</select><label><input id="alongWave" type="checkbox"> 波动 ±2%</label><small>固定种子，每秒采样</small></div><canvas id="alongChart" width="860" height="270" aria-label="模拟沿程水质对数曲线"></canvas><div id="alongReadout" role="status"></div><small id="alongFinal"></small><details><summary>修改假设原水 / 查看逐项来源</summary><p>客户表已填写的有效数值优先；其余只在此模拟补假设，不补入客户结垢面板。EC/TDS换算系数0.6为模拟假设。</p><div id="alongRawFields">'+Object.keys(ALONG_MODEL.metrics).map(k=>'<label>'+ALONG_MODEL.metrics[k].join(' ')+'<input data-along-raw="'+k+'" type="number" min="0" max="1000000" step="any" value="'+ALONG.raw[k]+'"></label>').join('')+'</div><div id="alongOrigin"></div><div id="alongDeviceValues"></div><p>仅产水侧串联 C出=C入×(1−脱除率)，不求回收率、浓水、回流或结垢。EDI前EC按25℃纯水基底0.055µS/cm+剩余离子贡献估计；EDI末端统一采用原稳态模型产水EC，不由固定98%外推；电阻率=1/EC（MΩ·cm）。教学前段及水箱储存未计CO₂；EDI末端采用原稳态模型（含其碳酸平衡）；SDI百分比仅示意，非可加性水质预测。0值在对数图以底边空心点表示，读数仍为0。</p><div id="alongSources"></div></details>';
 el('tb').before(alongPanel);
 const alongCtx=el('alongChart').getContext('2d');
 function alongInput(){
@@ -4160,7 +4160,7 @@ function alongInput(){
  return {input:input,used:used};
 }
 function alongExists(s){return !!EQ[s.id]||(s.aliases||[]).some(k=>!!EQ[k])}
-function alongRecalculate(t){const a=alongInput();ALONG.result=ALONG_MODEL.calculate(a.input,ALONG.wave,t,alongExists);ALONG.revision++;el('alongOrigin').textContent=a.used.length?a.used.join('；'):'全部采用本页可编辑假设原水';el('alongSources').textContent=ALONG.result.rows.map(s=>s.name+'：'+s.source).join('\n');}
+function alongRecalculate(t){const a=alongInput();ALONG.result=ALONG_MODEL.calculate(a.input,ALONG.wave,t,alongExists,RO.props(D.edi.prod).EC);ALONG.revision++;el('alongOrigin').textContent=a.used.length?a.used.join('；'):'全部采用本页可编辑假设原水';el('alongSources').textContent=ALONG.result.rows.map(s=>s.name+'：'+s.source).join('\n');}
 function alongIndex(id){const rows=ALONG.result.rows;const i=rows.findIndex(s=>s.id===id||s.aliases.indexOf(id)>=0);if(i>=0)return i;const map={'P-101':'T-101','P-201':'F-103','P-202':'D-103','T-401':'RO-101','P-401':'RO-101','F-401':'RO-101'};return rows.findIndex(s=>s.id===map[id])}
 function alongPosition(){if(UI.tab!=='pDrop'||!DROP.ready)return 0;const sg=DROP.segs[DROP.seg];let j=DROP.seg;while(j>=0&&DROP.segs[j].st<0)j--;const st=DROP.st[sg.st>=0?sg.st:j>=0?DROP.segs[j].st:0];const i=alongIndex(st.eq||st.id);if(i<0)return 0;if(!ALONG.result.rows.some(s=>s.id===(st.eq||st.id)||s.aliases.indexOf(st.eq||st.id)>=0))return i;let u=sg.st>=0?Math.max(0,Math.min(1,(DROP.t-sg.t0)/sg.dur)):1;if(sg.phase==='feed')u*=.35;else if(sg.phase==='cross')u=.35+u*.25;else if(sg.phase==='perm')u=.6+u*.4;return Math.max(0,i-1+u)}
 function alongNum(v){return v===0?'0':v<.001?v.toExponential(2):v.toFixed(v<1?4:2)}
@@ -4174,21 +4174,76 @@ function alongDraw(){
  ctx.strokeStyle='#72c3cd';ctx.lineWidth=3;ctx.beginPath();values.forEach((v,j)=>{if(j===0)ctx.moveTo(x(j),y(v));else ctx.lineTo(x(j),y(v))});ctx.stroke();
  values.forEach((v,j)=>{ctx.beginPath();ctx.arc(x(j),y(v),j===i?7:4,0,Math.PI*2);ctx.fillStyle=j===i?'#e8f9ff':'#72c3cd';if(v>0)ctx.fill();else ctx.stroke();ctx.save();ctx.translate(x(j),h-30);ctx.rotate(-.35);ctx.fillStyle='#acbdcc';ctx.fillText(rows[j].short,-15,0);ctx.restore()});
  if(UI.tab==='pDrop'){const p=ALONG.current,j=Math.min(n-2,Math.floor(p)),u=p-j;ctx.beginPath();ctx.arc(x(p),y(values[j])*(1-u)+y(values[j+1])*u,9,0,Math.PI*2);ctx.fillStyle='#e397a8';ctx.fill()}
- const s=rows[i],m=ALONG_MODEL.metrics[k];el('alongReadout').textContent='模拟计算（假设原水），非实测 · '+s.name+'：进 '+alongNum(s.in[k])+' → 出 '+alongNum(s.out[k])+' '+m[1];el('alongFinal').textContent='模拟终水电阻率 '+ALONG.result.resistivity.toFixed(2)+' MΩ·cm（25℃，未计CO₂）';el('alongDeviceValues').innerHTML='<b>模拟计算（假设原水），非实测 · '+s.name+'</b><table><tr><th>指标</th><th>进水</th><th>出水</th></tr>'+Object.keys(ALONG_MODEL.metrics).map(key=>'<tr><td>'+ALONG_MODEL.metrics[key].join(' ')+'</td><td>'+alongNum(s.in[key])+'</td><td>'+alongNum(s.out[key])+'</td></tr>').join('')+'</table>';el('alongChart').dataset.stage=s.id;el('alongChart').dataset.current=ALONG.current.toFixed(4);
+ const s=rows[i],m=ALONG_MODEL.metrics[k];el('alongReadout').textContent='模拟计算（假设原水），非实测 · '+s.name+'：进 '+alongNum(s.in[k])+' → 出 '+alongNum(s.out[k])+' '+m[1];el('alongFinal').textContent='模拟终水电阻率 '+ALONG.result.resistivity.toFixed(2)+' MΩ·cm（25℃，水箱储存CO₂未计）';el('alongDeviceValues').innerHTML='<b>模拟计算（假设原水），非实测 · '+s.name+'</b><table><tr><th>指标</th><th>进水</th><th>出水</th></tr>'+Object.keys(ALONG_MODEL.metrics).map(key=>'<tr><td>'+ALONG_MODEL.metrics[key].join(' ')+'</td><td>'+alongNum(s.in[key])+'</td><td>'+alongNum(s.out[key])+'</td></tr>').join('')+'</table>';el('alongChart').dataset.stage=s.id;el('alongChart').dataset.current=ALONG.current.toFixed(4);
 }
-function alongTick(){if(document.hidden)return;const bucket=Math.floor(performance.now()/1000),sig=JSON.stringify([WQ.raw,ALONG.raw,ALONG.wave,ALONG.wave?bucket:0]);const changed=sig!==ALONG.signature;if(changed){ALONG.signature=sig;alongRecalculate(bucket)}const view=[UI.sel,UI.tab,UI.tab==='pDrop'?DROP.t:0,ALONG.metric,ALONG.revision].join('|');if(view!==ALONG.view&&(ALONG.lastDraw===undefined||performance.now()-ALONG.lastDraw>=250)){ALONG.view=view;ALONG.lastDraw=performance.now();alongDraw()}}
+function alongTick(){if(document.hidden)return;const bucket=Math.floor(performance.now()/1000),sig=JSON.stringify([WQ.raw,ALONG.raw,ALONG.wave,ALONG.wave?bucket:0,RO.props(D.edi.prod).EC]);const changed=sig!==ALONG.signature;if(changed){ALONG.signature=sig;alongRecalculate(bucket)}const view=[UI.sel,UI.tab,UI.tab==='pDrop'?DROP.t:0,ALONG.metric,ALONG.revision].join('|');if(view!==ALONG.view&&(ALONG.lastDraw===undefined||performance.now()-ALONG.lastDraw>=250)){ALONG.view=view;ALONG.lastDraw=performance.now();alongDraw()}}
 el('alongMetric').onchange=()=>{ALONG.metric=el('alongMetric').value;alongTick()};el('alongWave').onchange=()=>{ALONG.wave=el('alongWave').checked;alongTick()};
 alongPanel.querySelectorAll('[data-along-raw]').forEach(e=>e.oninput=()=>{const v=Number(e.value),ok=e.value.trim()!==''&&Number.isFinite(v)&&v>=0&&v<=1e6;e.setAttribute('aria-invalid',!ok);if(ok){ALONG.raw[e.dataset.alongRaw]=v;alongTick()}});
 el('alongChart').onclick=ev=>{const r=ev.target.getBoundingClientRect(),px=(ev.clientX-r.left)*860/r.width,n=ALONG.result.rows.length,i=Math.max(0,Math.min(n-1,Math.round((px-88)/(860-108)*(n-1))));selectEq(ALONG.result.rows[i].id);alongTick()};
 /* 工况全部复用经既有自检的步骤。闲置管只改原材质颜色，保留近景遮挡透明。 */
-function alongCapture(){animatedPipes.forEach(p=>{const b={color:p.tube.material.color.clone(),em:p.tube.material.emissive.clone()};ALONG.bases.set(p,b);if(p.opsColor)p.opsColor.copy(b.color);if(p.opsEm)p.opsEm.copy(b.em)})}
-function alongTint(){animatedPipes.forEach(p=>{const b=ALONG.bases.get(p);if(!b)return;if(!p.opsAffected){p.tube.material.color.copy(b.color);p.tube.material.emissive.copy(b.em)}if(!p.on){p.tube.material.color.multiplyScalar(.24);p.tube.material.emissive.multiplyScalar(.24)}})}
-const alongQuality=refreshWaterQuality;refreshWaterQuality=function(){animatedPipes.forEach(p=>{const b=ALONG.bases.get(p);if(b){p.tube.material.color.copy(b.color);p.tube.material.emissive.copy(b.em)}});alongQuality();alongCapture();alongTint()};
+function alongRememberCIP(p){if(p.med==='cip'&&!ALONG.cipOriginals.has(p))ALONG.cipOriginals.set(p,{color:p.tube.material.color.clone(),em:p.tube.material.emissive.clone(),flow:p.flow.material.color.clone()})}
+function alongCapture(){animatedPipes.forEach(p=>{alongRememberCIP(p);const b={color:p.tube.material.color.clone(),em:p.tube.material.emissive.clone()};ALONG.bases.set(p,b);if(p.opsColor)p.opsColor.copy(b.color);else p.opsColor=b.color.clone();if(p.opsEm)p.opsEm.copy(b.em);else p.opsEm=b.em.clone();if(!p.opsFlow)p.opsFlow=p.flow.material.color.clone()})}
+function alongTint(){animatedPipes.forEach(p=>{const b=ALONG.bases.get(p);if(!b)return;if(p.opsAffected){p.tube.material.color.setHex(OPS.kind==='cip'?0x42cfc4:0xf16e74).convertSRGBToLinear();p.tube.material.emissive.copy(p.tube.material.color)}else{p.tube.material.color.copy(b.color);p.tube.material.emissive.copy(b.em)}if(!p.on){p.tube.material.color.multiplyScalar(.24);p.tube.material.emissive.multiplyScalar(.24)}})}
+const alongQuality=refreshWaterQuality;refreshWaterQuality=function(){animatedPipes.forEach(p=>{alongRememberCIP(p);const b=ALONG.bases.get(p);if(b){p.tube.material.color.copy(b.color);p.tube.material.emissive.copy(b.em)}const c=ALONG.cipOriginals.get(p);if(c&&!productFlushActive){p.tube.material.color.copy(c.color);p.tube.material.emissive.copy(c.em);p.flow.material.color.copy(c.flow)}});alongQuality();alongCapture();alongTint()};
 const alongOpsVisual=opsVisual;opsVisual=function(){alongOpsVisual();alongTint()};
 alongCapture();
 const alongApply=applyStep;applyStep=function(st){alongApply(st);alongTint();const flush=['flush','sd4','c0','c5'].indexOf(st.k)>=0;ALONG.mode=flush?'flush':UI.mode===2?'cip':st.k==='run'?'run':'other';alongPanel.querySelectorAll('[data-along-mode]').forEach(b=>b.classList.toggle('on',b.dataset.alongMode===ALONG.mode));el('alongModeNote').textContent=(ALONG.mode==='flush'?'冲洗：T-401预存RO产水 → RO → 排放；回箱隔离':ALONG.mode==='cip'?'CIP：RO产水配液；按原步骤配液/循环/浸泡':ALONG.mode==='run'?'运行：主流程至纯水箱':'原流程：'+st.t)+' · 绿灯开 / 红灯关；暗管停流';};
 function alongMode(mode){stopAuto();pauseTour();const m=mode==='run'?0:2,key=mode==='run'?'run':mode==='flush'?'c0':'c4';gotoStep(m,MODES[m].steps.findIndex(s=>s.k===key));alongTick();wakeRender()}
 alongPanel.querySelectorAll('[data-along-mode]').forEach(b=>b.onclick=()=>alongMode(b.dataset.alongMode));
-const alongRebuild=rebuild;rebuild=function(){ALONG.bases.clear();alongRebuild();ALONG.signature='';alongTick()};
+const alongRebuild=rebuild;rebuild=function(){ALONG.bases.clear();ALONG.cipOriginals.clear();alongRebuild();ALONG.signature='';alongTick()};
 alongMode('run');alongTick();setInterval(alongTick,250);window.alongReady=true;
+
+/* 限值/位置/出处/置信度仅转录资料_公开依据/产水标准限值.md（含其明确引用的清单§4）。
+ * 离线文本出处，不加载任何网址；所有判定仅为模拟单项比较，不授予标准等级。 */
+const PRODUCT={standard:'ew2',rows:[],signature:''};
+const PRODUCT_STANDARDS=[['ew1','GB/T 11446.1 EW-Ⅰ'],['ew2','GB/T 11446.1 EW-Ⅱ'],['ew3','GB/T 11446.1 EW-Ⅲ'],['ew4','GB/T 11446.1 EW-Ⅳ'],['ph2020','药典纯化水2020'],['ph2025','药典纯化水2025'],['lab1','GB/T 6682 一级'],['lab2','GB/T 6682 二级'],['lab3','GB/T 6682 三级'],['boiler1','GB/T 12145 5.9–12.6 MPa'],['boiler2','GB/T 12145 12.7–18.3 MPa'],['boiler3','GB/T 12145 >18.3 MPa']];
+function productLimits(key){
+ const a=[],ew=/^ew/.test(key),lab=/^lab/.test(key),boiler=/^boiler/.test(key),i=Number(key.slice(-1))-1;
+ const add=(id,name,limit,unit,max,metric,where,source,note)=>a.push({id:id,name:name,limit:limit,unit:unit,max:max,metric:metric,where:where||'用水点',source:source,confidence:'B（第三方转载）',note:note||''});
+ if(ew){
+ const src='GB/T 11446.1-2013 表1；限值资料明确引用公开依据清单§4（baibok转载）；其余表1 Scribd转载';
+ add('rho','电阻率（25℃）',[18,15,12,.5][i],'MΩ·cm',false,'rho','用水点',src,i<2?'5%时间下限'+[17,13][i]+'；本模拟无时序检测，不能核实该条件':'');
+ add('totalSi','全硅',[2,10,50,1000][i],'μg/L',true,null,'用水点',src,'沿程SiO₂仅模拟假设，不能替代全硅检测；EDI-310无产水硅保证');
+ [['toc','TOC',[20,100,200,1000]],['na','钠',[.5,2,5,1000]],['k','钾',[.5,2,5,500]],['cl','氯',[1,1,10,1000]],['no3','硝酸根',[1,1,5,500]],['po4','磷酸根',[1,1,5,500]],['so4','硫酸根',[1,1,5,500]],['cu','铜',[.2,1,2,500]],['zn','锌',[.2,1,5,500]],['ni','镍',[.1,1,2,500]]].forEach(r=>add(r[0],r[1],r[2][i],'μg/L',true,null,'用水点',src));
+ add('bacteria','细菌',[.01,.1,10,100][i],'个/mL',true,null,'用水点',src);
+ if(i===0){[['fe','铁',.1],['pb','铅',.1],['f','氟',1],['no2','亚硝酸根',1],['br','溴',1]].forEach(r=>add(r[0],r[1],r[2],'μg/L',true,null,'用水点',src));[['0.05–0.1',500],['0.1–0.2',300],['0.2–0.3',50],['0.3–0.5',20],['>0.5',4]].forEach((r,j)=>add('particle'+j,'微粒 '+r[0]+' μm',r[1],'个/L',true,null,'用水点',src))}
+ }else if(lab){
+ const src='GB/T 6682-2008 表1、7.2.2.2；yiqifuwu标准全文PDF转载 / ccdpy转载',where=i<2?'设备出口（流动出水口在线电导池）':'设备出口取样（三级400mL）';
+ add('ec','电导率（25℃）',[.1,1,5][i],'μS/cm',true,'EC',where,src);
+ if(i>0)add('oxid','可氧化物（以O计）',[0,.08,.4][i],'mg/L',true,null,'设备出口取样',src);
+ if(i<2){add('abs','吸光度（254nm，1cm）',[.001,.01][i],'',true,null,'设备出口取样',src);add('si','可溶性硅（SiO₂）',[.01,.02][i],'mg/L',true,'SiO2','设备出口取样',src,'模拟假设，非手册保证，需实测确认')}
+ if(i>0)add('residue','蒸发残渣（105℃）',[0,1,2][i],'mg/L',true,null,'设备出口取样',src);
+ if(i===2)add('ph','pH（25℃）','5.0–7.5','',true,null,'设备出口取样',src);
+ }else if(boiler){
+ const src='GB/T 12145-2016 表9；原文/GBT12145_表9-11.png（henangj标准PDF转载）';
+ add('ec','除盐水箱进水电导率（25℃）',i===2?.15:.2,'μS/cm',true,'EC','设备出口（除盐水箱进水）',src,i>0?'期望≤0.10 μS/cm（不作为强制限值）':'');
+ if(i>0){add('si','SiO₂',i===1?20:10,'μg/L',true,'SiMicro','设备出口（箱进水/箱出口）',src,'模拟假设，未计储存污染，需实测确认');add('ecOut','除盐水箱出口电导率（25℃）',.4,'μS/cm',true,'EC','设备出口（纯水箱出口）',src,'假设水箱水质保持');add('toci','TOCi',i===1?400:200,'μg/L',true,null,'设备出口（除盐水箱出口）',src,'必要时监测')}
+ }else{
+ const src='药典0681表1（antpedia 2025转载）；2020→2025仅文字调整见gbtest文§3.4；其他项目3a0598/anytesting转载';
+ add('ec','电导率（25℃）',5.1,'μS/cm',true,'EC','用水点',src,'非温度补偿电导率；此处仅对照25℃，实际按检测温度表内插');
+ if(key==='ph2025')add('ecAlt','方案二电导率（25℃）',1.3,'μS/cm',true,'EC','用水点','药典2025 0681表2；gbtest修订说明表2','与方案一择一；实测第一步合格才免酸碱度/重金属/硝酸盐/亚硝酸盐/氨，本模拟不自动豁免');
+ add('toc','TOC',.50,'mg/L',true,null,'用水点',src,key==='ph2020'?'与易氧化物二选一':'');
+ [['no3','硝酸盐',.000006],['no2','亚硝酸盐',.000002],['nh3','氨',.00003],['metal','重金属',.00001]].forEach(r=>add(r[0],r[1],r[2],'%',true,null,'用水点',src,key==='ph2025'?'实际采用方案二并实测合格时可免检':''));
+ add('residue','不挥发物',1,'mg/100mL',true,null,'用水点',src,key==='ph2025'?'移至注，基于风险评估选做':'');
+ add('bacteria','需氧菌总数',100,'CFU/mL',true,null,'用水点',src);
+ if(key==='ph2025')add('bcc','不可接受微生物（如BCC）','监测要求','',true,null,'用水点','药典2025：anytesting转载；9209监测指导原则');
+ }
+ return a;
+}
+const productStyle=document.createElement('style');productStyle.textContent='#productCompare{max-height:360px!important;overflow:auto!important;margin-top:8px;border-top:1px solid var(--bd);padding-top:7px}#productCompare summary{cursor:pointer;font-weight:bold;color:#79c9d3}#productWarning{padding:7px;background:#863d482b;color:#eea5ad;font-weight:bold}#productTableWrap{max-height:225px;overflow:auto}#productCompare table{width:100%;font-size:10px}#productCompare th{position:sticky;top:0;background:var(--cd)}#productCompare td{vertical-align:top}#productCompare select{max-width:100%;margin:5px 0}#productCompare p{line-height:1.5}';document.head.append(productStyle);
+const productPanel=document.createElement('details');productPanel.id='productCompare';productPanel.innerHTML='<summary>纯水箱 · 产水达标对照表（默认 EW-Ⅱ）</summary><div id="productWarning">模拟计算，非实测，最终以用水点检测为准</div><select id="productStandard" aria-label="产水对照标准">'+PRODUCT_STANDARDS.map(s=>'<option value="'+s[0]+'"'+(s[0]==='ew2'?' selected':'')+'>'+s[1]+'</option>').join('')+'</select><div id="productTableWrap"><table><thead><tr><th>指标 / 单位</th><th>模拟值</th><th>限值</th><th>是否达标</th><th>判定位置 / 出处 / 置信度</th></tr></thead><tbody id="productRows"></tbody></table></div><p id="productConclusion"></p><p id="productEDI"></p><p>更高等级需在纯水箱后加抛光，本演示不含，流程仍止于纯水箱。工艺建议属判断，非标准保证。设备出口模拟值不能代替用水点检测，未计储存污染与CO₂吸收。</p><small>限值依据：资料_公开依据/产水标准限值.md；B＝第三方转载，未与正式出版物逐字比对。未规定的项目不作通过判定，不能据此宣称整项标准达标。</small>';
+alongPanel.append(productPanel);
+function productRefresh(){
+ const last=ALONG.result.rows[ALONG.result.rows.length-1].out,values={EC:last.EC,rho:1/last.EC,SiO2:last.SiO2,SiMicro:last.SiO2*1000};
+ PRODUCT.rows=productLimits(PRODUCT.standard).map(r=>{const v=r.metric?values[r.metric]:null,known=typeof v==='number'&&Number.isFinite(v),ok=known&&(r.max?v<=r.limit:v>=r.limit);return Object.assign(r,{value:known?v:null,status:!known?'需实测':!ok?'不达标':r.id==='rho'&&PRODUCT.standard==='ew2'&&v<16?'达标（临界，无余量）':'达标（模拟单项）'})});
+ el('productRows').innerHTML=PRODUCT.rows.map(r=>'<tr data-product="'+r.id+'"><td>'+r.name+'<br>'+r.unit+'</td><td data-value="'+(r.value===null?'':r.value)+'">'+(r.value===null?'需实测':alongNum(r.value))+'</td><td>'+(typeof r.limit==='number'?(r.max?'≤':'≥'):'')+r.limit+'</td><td>'+r.status+'</td><td>'+r.where+'<br>'+r.source+'<br>置信度：'+r.confidence+(r.note?'<br>'+r.note:'')+'</td></tr>').join('');
+ el('productConclusion').textContent='仅模拟单项对照：'+PRODUCT.rows.filter(r=>r.status.indexOf('达标')===0).length+'项满足限值，'+PRODUCT.rows.filter(r=>r.status==='不达标').length+'项不达标，'+PRODUCT.rows.filter(r=>r.status==='需实测').length+'项需实测；整体标准符合性未确认。';
+ el('productEDI').textContent='EDI出口模拟 '+values.rho.toFixed(2)+' MΩ·cm / '+values.EC.toFixed(5)+' μS/cm（25℃），统一取原稳态模型。依据：DuPont EDI-310 手册45-D01915 Rev2，满足Table1进水条件时≥15 MΩ·cm；手册未给产水硅、TOC、钠保证，进水条件未全部实测核实。';
+}
+el('productStandard').onchange=()=>{PRODUCT.standard=el('productStandard').value;productRefresh()};
+const productRecalculate=alongRecalculate;alongRecalculate=function(t){productRecalculate(t);productRefresh()};
+const productRenderEq=renderEq;renderEq=function(){productRenderEq();if(UI.sel==='T-301'){productPanel.open=true}if(UI.sel==='EDI-301'||UI.sel==='T-301'){const n=document.createElement('p');n.textContent=el('productEDI').textContent;el('pEq').append(n)}};
+productRefresh();window.productReady=true;
+// 原有EDI参数表也展示同一个模型数值，实际检测结果仍独立保留“无数据”。
+const productPublicEDI=publicEDI;publicEDI=function(){const v=RO.props(D.edi.prod);return productPublicEDI().replace('</table>','<tr><th>模拟出口电阻率 / 电导率（25℃）</th><td data-edi-rho="'+v.rho+'">'+v.rho.toFixed(2)+' MΩ·cm / '+v.EC.toFixed(5)+' μS/cm<br>模拟计算，非实测；DuPont EDI-310 45-D01915 Rev2：满足Table1时≥15 MΩ·cm，未保证硅/TOC/钠。</td></tr></table>')};
 </script></body></html>
