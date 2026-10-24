@@ -1,5 +1,13 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>RO 纯水系统 · 工艺三维演示（严谨版 第三版）</title>
+<title>RO纯水系统 3D 演示（模拟计算）</title>
+<meta name="description" content="离线RO纯水系统三维演示：原水、预处理、两级反渗透、EDI至纯水箱。水质、能耗与成本均为模拟计算，非实测。">
+<meta property="og:title" content="RO纯水系统 3D 演示（模拟计算）">
+<meta property="og:description" content="交互查看净水流程、原水情景、水质与吨水成本；全部模拟计算，非实测。支持数值面板与P&amp;ID。">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#102434">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="RO纯水演示">
 <style>
 :root{--bg:#eef2f6;--cd:#fff;--c2:#e6ecf2;--tx:#17222d;--mu:#586877;--ac:#0b64d8;--bd:#cfd8e2;--ok:#16a34a;--wa:#d97706;--er:#dc2626}
 :root[data-theme=dark]{--bg:#0a1118;--cd:#111b25;--c2:#1a2836;--tx:#e6edf3;--mu:#93a4b3;--ac:#4c9bff;--bd:#243648;--ok:#34d399;--wa:#fbbf24;--er:#f87171}
@@ -1467,15 +1475,50 @@ function provenance(){
 root.RO={publicDesign:publicDesign,provenance:provenance,size:sizeAll,warnings:warnings,dnFor:dnFor,velAt:velAt,OD_PVC:OD_PVC,OD_SS:OD_SS,STD_DN:STD_DN,tankDims:tankDims,ASSUME:ASSUME,SP:SP,MW:MW,props:props,speciate:speciate,mix:mix,clone:clone,rawStream:rawStream,design:design,tcf:tcf,runPass:runPass,Nmeq:Nmeq,massOf:massOf,dosePH:dosePH,runEDI:runEDI,unitMMF:unitMMF,unitACF:unitACF,unitSOF:unitSOF,unitCF:unitCF};
 })(typeof window!=='undefined'?window:globalThis);
 </script>
-<script>/* ====== 三维基础：渲染器、材质、几何工具 ====== */
+<script>/* 情景输入适配器。只包装原RO.design/rawStream，不修改计算模型或结垢算法。
+ * 补全水样仅供稳态模拟；公开/客户原表保留null，不送补全值给WQCalc。 */
+const SCENARIO=(function(){
+ const baseline=JSON.parse(JSON.stringify(RO.ASSUME.raw));
+ const defaults={Ca:70,Mg:18,Na:55,K:5,Cl:87,SO4:80,NO3:15,SiO2:10,HCO3:150,T:25,pH:7.6};
+ const names={default:'默认假设原水',tap:'上海自来水',ground:'北京平原地下水',salt:'高盐苦咸水',custom:'客户自定义报告'};
+ let key='default',report={},revision=0;
+ function resolve(k,input){
+  if(k==='default')return {key:k,name:names[k],raw:JSON.parse(JSON.stringify(baseline)),T:25,assumptions:['基准完整离子假设：Ca70、Mg18、Na55、K5、Cl87、SO₄80、NO₃15、SiO₂18 mg/L，pH7.6、25℃；碳酸总量按电荷平衡及pH反解，保持原默认链。'],invalid:[]};
+  const src=k==='custom'?(input||{}):PUBLIC_BASIS.waters[k],v={},notes=[],invalid=[];
+  Object.keys(defaults).forEach(p=>{const x=src[p];if(x!==undefined&&x!==null&&(!Number.isFinite(x)||x<0||(p==='pH'&&(x<5||x>10))||(p==='T'&&(x<1||x>45))))invalid.push(p);v[p]=x!==undefined&&x!==null&&Number.isFinite(x)&&x>=0?x:defaults[p];if((x===undefined||x===null)&&!(k==='tap'&&['Ca','Mg'].indexOf(p)>=0)&&!(k==='salt'&&['Na','K'].indexOf(p)>=0))notes.push(p+'='+v[p]+(p==='T'?'℃':p==='pH'?'':' mg/L'))});
+  if(k==='tap'){const h=src.hard/100.09,ratio=(70/40.078)/(70/40.078+18/24.305);v.Ca=h*ratio*40.078;v.Mg=h*(1-ratio)*24.305;notes.push('Ca/Mg由报告硬度147按基准摩尔比例拆分：'+v.Ca.toFixed(4)+' / '+v.Mg.toFixed(4)+' mg/L')}
+  if(k==='salt'){v.Na=src.NaK;v.K=0;notes.push('Na+K合计3500.32 mg/L全部按Na端元，K=0（明确假设）')}
+  const H=Math.pow(10,-v.pH),K1=Math.pow(10,-6.35),K2=Math.pow(10,-10.33),b=v.HCO3/61.017;
+  const need=b+2*b*K2/H+(1e-14/H-H)*1000;if(v.HCO3<=0||need<=0)invalid.push('HCO3/pH（当前碳酸平衡适配需HCO₃>0及正碱度）');
+  const strong=2*v.Ca/40.078+2*v.Mg/24.305+v.Na/22.990+v.K/39.098-v.Cl/35.45-2*v.SO4/96.06-v.NO3/62.004;
+  const delta=need-strong,ion=delta>=0?'Na':'Cl',amount=Math.abs(delta)*(delta>=0?22.990:35.45);v[ion]+=amount;
+  notes.push('按HCO₃='+v.HCO3+' mg/L和pH电荷平衡，以'+ion+'额外补齐 '+amount.toFixed(5)+' mg/L（保留原报告值，模拟组成增加平衡离子）');
+  notes.push('EC/TDS由离子重算，不强制拟合报告TDS；模型仅含Ca/Mg/Na/K/Cl/SO₄/NO₃/SiO₂及碳酸体系，Ba/Sr/Fe等不参与稳态盐透过；结垢仍读原始报告。余氯0.3mg/L、浊度1NTU、SDI4为可编辑教学假设，非报告值');
+  return {key:k,name:names[k],T:v.T,raw:{mgL:Object.keys(baseline.mgL).reduce((o,p)=>(o[p]=v[p],o),{}),pH:v.pH,T:v.T,turb:1,SDI:4,Cl2:.3},assumptions:['假设补全（仅模拟，非实测）：'+notes.join('；')],invalid:invalid};
+ }
+ function current(){return resolve(key,report)}
+ function select(k,input){if(!names[k])return;key=k;report=Object.assign({},input||{});revision++}
+ const originalDesign=RO.design,originalRaw=RO.rawStream;
+ function withRaw(fn){const s=current(),saved=RO.ASSUME.raw;if(s.invalid.length)throw new Error('需修正报告：'+s.invalid.join('、')+'；pH限5–10，温度限1–45℃，浓度须非负有限数');RO.ASSUME.raw=s.raw;try{return fn(s)}finally{RO.ASSUME.raw=saved}}
+ RO.design=function(inp){if(key==='default')return originalDesign(inp);return withRaw(s=>originalDesign(Object.assign({},inp,{T:s.T,EC:null})))};
+ RO.rawStream=function(q,t,ec){if(key==='default')return originalRaw(q,t,ec);return withRaw(s=>originalRaw(q,s.T,null))};
+ return {names:names,select:select,current:current,resolve:resolve,get key(){return key},get revision(){return revision},get report(){return Object.assign({},report)}};
+})();
+
+/* ====== 三维基础：渲染器、材质、几何工具 ====== */
 const V3=(x,y,z)=>new THREE.Vector3(x,y,z);
 const $=s=>document.querySelector(s);
 const cvEl=$('#cv'),stEl=$('#st');
 const MOB=(window.matchMedia&&matchMedia('(pointer:coarse)').matches)||Math.min(screen.width||9999,screen.height||9999)<700; // 触屏 / 小屏：降低渲染负载
 let renderer;
-try{renderer=new THREE.WebGLRenderer({canvas:cvEl,antialias:!MOB,powerPreference:'default',preserveDrawingBuffer:!MOB})}
-catch(e){document.body.innerHTML='<div style="padding:30px;font:16px/1.7 sans-serif;color:#333">当前浏览器无法创建 WebGL 画面。请换用较新的 Safari、Chrome 或微信内置浏览器，并确认系统未关闭硬件加速。</div>';throw e}
-renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,MOB?1.5:2));
+// 先探测上下文，避免three在不支持WebGL时记录console.error并中断全页。
+let mainGL=null;try{mainGL=cvEl.getContext('webgl2',{antialias:!MOB,alpha:false,preserveDrawingBuffer:!MOB,powerPreference:'default'})||cvEl.getContext('webgl',{antialias:!MOB,alpha:false,preserveDrawingBuffer:!MOB,powerPreference:'default'})}catch(e){}
+if(mainGL){try{renderer=new THREE.WebGLRenderer({canvas:cvEl,context:mainGL,antialias:!MOB,powerPreference:'default',preserveDrawingBuffer:!MOB})}catch(e){mainGL=null}}
+if(!mainGL){
+ window.__RO_NO_WEBGL=true;let ratio=1;
+ renderer={domElement:cvEl,capabilities:{getMaxAnisotropy:()=>1},info:{render:{calls:0,triangles:0},memory:{geometries:0,textures:0}},setPixelRatio:r=>{ratio=r},getPixelRatio:()=>ratio,setSize:(w,h)=>{cvEl.width=Math.round(w*ratio);cvEl.height=Math.round(h*ratio)},render:()=>{}};
+}
+renderer.setPixelRatio(Math.max(1,Math.min(window.devicePixelRatio||1,2)));
 renderer.outputEncoding=THREE.sRGBEncoding;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=0.85;
 const scene=new THREE.Scene();
 const camera=new THREE.PerspectiveCamera(36,1,0.05,400);
@@ -1488,6 +1531,7 @@ const sun2=new THREE.DirectionalLight(0x9cc7ff,0.35);sun2.position.set(18,10,-12
 // 程序化环境贴图（金属反射用）
 (function(){
   try{
+    if(window.__RO_NO_WEBGL)return;
     const es=new THREE.Scene();
     const c=document.createElement('canvas');c.width=64;c.height=256;const x=c.getContext('2d');const g=x.createLinearGradient(0,0,0,256);
     g.addColorStop(0,'#cfe3f5');g.addColorStop(0.45,'#8aa2b8');g.addColorStop(0.5,'#445566');g.addColorStop(1,'#1d2630');x.fillStyle=g;x.fillRect(0,0,64,256);
@@ -1599,8 +1643,9 @@ function roomBackdrop(tech){const c=document.createElement('canvas');c.width=c.h
 }
 function buildRoom(){if(ROOM.built)return;ROOM.built=true;const root=new THREE.Group();root.name='悬浮平台';ROOM.group=root;scene.add(root);
  ROOM.textures=[roomCanvas('bright'),roomCanvas('tech')];ROOM.backgrounds=[roomBackdrop(false),roomBackdrop(true)];
- // 背景仅一次纹理采样，直接输出Canvas显示色；最后绘制到远平面，早期深度测试跳过设备/地板已遮住的像素。
- ROOM.backdrop=new THREE.Mesh(new THREE.PlaneGeometry(2,2),new THREE.ShaderMaterial({uniforms:{map:{value:ROOM.backgrounds[1]}},vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,1.0,1.0);}',fragmentShader:'uniform sampler2D map;varying vec2 vUv;void main(){gl_FragColor=texture2D(map,vUv);}',depthTest:true,depthWrite:false,toneMapped:false}));ROOM.backdrop.name='静态背景直接输出';ROOM.backdrop.frustumCulled=false;ROOM.backdrop.renderOrder=10000;root.add(ROOM.backdrop);
+ // 背景先覆盖整个裁剪空间且不参与深度测试；避免远平面边界在窄屏/高DPR下留下未覆盖的横带。
+ // 仍直接输出Canvas显示色，设备与透明材质随后正常绘制。
+ ROOM.backdrop=new THREE.Mesh(new THREE.PlaneGeometry(2,2),new THREE.ShaderMaterial({uniforms:{map:{value:ROOM.backgrounds[1]}},vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,0.0,1.0);}',fragmentShader:'uniform sampler2D map;varying vec2 vUv;void main(){gl_FragColor=texture2D(map,vUv);}',depthTest:false,depthWrite:false,toneMapped:false}));ROOM.backdrop.name='静态背景直接输出';ROOM.backdrop.frustumCulled=false;ROOM.backdrop.renderOrder=-10000;root.add(ROOM.backdrop);
  ROOM.floor=new THREE.Mesh(new THREE.PlaneGeometry(43,18),floorOutputMaterial(new THREE.MeshBasicMaterial({map:ROOM.textures[0]})));ROOM.floor.name='地坪纹理';ROOM.floor.rotation.x=-Math.PI/2;ROOM.floor.position.set(.5,-.008,-1);root.add(ROOM.floor);
  ROOM.pad=new THREE.Mesh(new THREE.BoxGeometry(43.06,.8,18.06),floorOutputMaterial(new THREE.MeshBasicMaterial({color:0x142736})));ROOM.pad.name='悬浮厚基座';ROOM.pad.position.set(.5,-.42,-1);root.add(ROOM.pad);
  const edges=[V3(-21,-.002,-10),V3(22,-.002,-10),V3(22,-.002,8),V3(-21,-.002,8)];
@@ -2526,6 +2571,13 @@ const _sm=x=>x<=0?0:x>=1?1:x*x*(3-2*x);
 function stOf(s,P){const p=RO.props(s);return {turb:s.turb,SDI:s.SDI,Cl2:s.Cl2,hard:p.hard,TDS:p.TDS,EC:p.EC,pH:p.pH,CO2:p.CO2mg,T:s.T,P:P}}
 function streamOfEl(c,P){const m={};RO.SP.forEach(k=>m[k]=c[k]);return {Q:1,T:25,m:m,CT:(c.HCO3||0)+(c.CO2||0),turb:0,SDI:0,Cl2:0,P:P}}
 function fmtV(k,v){const r=ROWS.find(x=>x.k==k);if(!r)return FN(v,2);if(k=='EC'&&v<10)return v<1?v.toFixed(3):v.toFixed(2);if(k=='TDS'&&v<2)return v.toFixed(2);return v.toFixed(r.dec)}
+// 站点可在情景/滑块重算时单独重建；元件索引必须随 els 一起初始化。
+function stationElement(S){
+  if(!S||!Array.isArray(S.els)||!S.els.length)return null;
+  const preferred=S.ro===1?2:1;
+  S.jm=Math.max(0,Math.min(S.els.length-1,Number.isInteger(S.jm)?S.jm:preferred));
+  return S.els[S.jm]||null;
+}
 function buildStations(d,Z){
   const P=Z.press,A=RO.ASSUME,pr=RO.props;const T0=d.inp.T;
   const raw=stOf(d.raw,P.rawOut),pOut=stOf(d.raw,P.rawPumpOut),mmf=stOf(d.s1,P.mmfOut),acf=stOf(d.s2,P.acfOut),sof=stOf(d.s3,P.sofOut),cf=stOf(d.s4,P.cfOut);
@@ -2579,6 +2631,7 @@ function buildStations(d,Z){
   add({id:'T-301',eq:'T-301',name:'纯水箱（终点）',in:prod,out:pureT,dwell:6,mech:'pure',end:true,
     how:'储存 EDI 产水，缓冲用水波动。纯水极易吸收空气中的 CO₂ 使电阻率下降，水箱应带呼吸器（过滤器）或氮封；本演示的系统到纯水箱出口阀为止。',
     prm:[['容积 / 尺寸',FN(Z.pure.V,0)+' m³，Φ'+Z.pure.D+' × H'+Z.pure.H+' m'],['持水时间',Z.pure.hold],['出口','DN'+PIPES['PW.out'].dn+'，'+spd(PIPES['PW.out'].Q,PIPES['PW.out'].dn)]]});
+  S.forEach(s=>{if(s.ro)stationElement(s)});
   DROP.st=S;return S;
 }
 /* ---- 路径 ---- */
@@ -2627,7 +2680,7 @@ function buildJourney(d,Z){
   const e1=EQ['RO-101'],sk1=e1.skid;const hz=PIPES['R1.fh']?PIPES['R1.fh'].poly:null;
   if(PIPES['R1.fh']){const fh=PIPES['R1.fh'].poly,mid=fh[Math.floor(fh.length/2)];pipe(lineN(mid,fh[0],6),'R1.fh')}
   pipe(pls('R1.fs0',true),'R1.fs0');
-  const j1=2;const rp1=roPath('RO-101',0,0,0,0,0,0,sk1.ne,j1);
+  stationElement(S[7]);const j1=S[7].jm;const rp1=roPath('RO-101',0,0,0,0,0,0,sk1.ne,j1);
   inEq(7,rp1.f,'feed',7);inEq(7,rp1.c,'cross',2.4);inEq(7,rp1.t,'perm',6.6);
   S[7].jm=j1;
   pipe(pls('R1.p0'),'R1.p0');
@@ -2647,7 +2700,7 @@ function buildJourney(d,Z){
   pipe(pls('MID.dis'),'MID.dis');
   if(PIPES['R2.fh']){const fh=PIPES['R2.fh'].poly,mid=fh[Math.floor(fh.length/2)];pipe(lineN(mid,fh[0],6),'R2.fh')}
   pipe(pls('R2.fs0',true),'R2.fs0');
-  const e2=EQ['RO-201'],sk2=e2.skid;const j2=1;const rp2=roPath('RO-201',0,0,0,0,0,0,sk2.ne,j2);
+  const e2=EQ['RO-201'],sk2=e2.skid;stationElement(S[11]);const j2=S[11].jm;const rp2=roPath('RO-201',0,0,0,0,0,0,sk2.ne,j2);
   inEq(11,rp2.f,'feed',6);inEq(11,rp2.c,'cross',2.4);inEq(11,rp2.t,'perm',7.6);S[11].jm=j2;
   pipe(pls('R2.p0'),'R2.p0');
   if(PIPES['R2.ph']){const ph=PIPES['R2.ph'].poly,mid=ph[Math.floor(ph.length/2)];pipe(lineN(ph[0],mid,6),'R2.ph')}
@@ -2685,7 +2738,7 @@ function dropState(){
   if(sg.st<0){ // 管内：取前一设备出口
     let k=DROP.seg-1;while(k>=0&&DROP.segs[k].st<0)k--;const s=k>=0?S[DROP.segs[k].st]:S[0];cur={vals:Object.assign({},s.out),st:-1,prev:s.i,u:u,frac:1};return cur}
   const s=S[sg.st];const a=s.in,b=s.out;const vals={};
-  if(s.ro){
+  if(s.ro&&stationElement(s)){
     const els=s.els,jm=s.jm;const sk=1;
     const feedEl=(q)=>{const i=Math.min(els.length-1,Math.floor(q));const e=els[i];const p=RO.props(streamOfEl(e.cin,e.Pin));return {vals:{turb:a.turb,SDI:a.SDI,Cl2:a.Cl2,hard:p.hard,TDS:p.TDS,EC:p.EC,pH:p.pH,CO2:p.CO2mg,T:a.T,P:e.Pin}}};
     if(sg.phase=='feed'){const x=u*(jm+0.5);const v=feedEl(x).vals;Object.assign(vals,v);
@@ -2797,7 +2850,7 @@ const MECH={
   for(let i=0;i<14;i++){const p=((t*0.35+i/14)%1);dot(c,L[3]-20+(rnd(i)-0.5)*90,380-p*330,3,CL.w)}
   if(cur&&cur.u!==undefined){const p=cur.u;dot(c,L[3]-20+14*Math.sin(p*14),380-p*330,7,'#fff');dot(c,L[3]-20+14*Math.sin(p*14),380-p*330,3.5,'#22d3ee')}
   txt(c,'电场 →',330,18,13,'#fbbf24');txt(c,'树脂界面水电离：H₂O → H⁺ + OH⁻，连续再生树脂',16,MH_-4,13)},
- ro(c,t,S,cur){const jm=S.jm;const e=S.els[jm];const pf=RO.props(streamOfEl(e.cin,e.Pin)),pc=RO.props(streamOfEl(e.cp,S.pin));
+ ro(c,t,S,cur){const e=stationElement(S);if(!e||!e.cin||!e.cp)return;const jm=S.jm;const pf=RO.props(streamOfEl(e.cin,e.Pin)),pc=RO.props(streamOfEl(e.cp,S.pin));
   const Y=[18,138,152,262,276,288,402];c.fillStyle='#0c2c4a';c.fillRect(0,Y[0],MW_,Y[1]-Y[0]);c.fillRect(0,Y[5],MW_,Y[6]-Y[5]);
   c.fillStyle='#fef3c7';c.fillRect(0,Y[2],MW_,Y[3]-Y[2]);c.fillStyle='#d1b97055';for(let x=0;x<MW_;x+=14){c.fillRect(x,Y[2]+4,7,Y[3]-Y[2]-8)}
   c.fillStyle='#14b8a6';c.fillRect(0,Y[1],MW_,Y[2]-Y[1]);c.fillRect(0,Y[3],MW_,Y[4]-Y[3]);c.fillStyle='#0f766e';c.fillRect(0,Y[4],MW_,Y[5]-Y[4]);
@@ -2823,6 +2876,7 @@ function micDraw(c,S,cur,t){c.clearRect(0,0,MW_,MH_);c.fillStyle='#08121c';c.fil
 /* ---- 卷式膜元件三维放大 ---- */
 const M3={on:false,ready:false};
 function m3Init(){
+  if(window.__RO_NO_WEBGL)return;
   const cv=$('#mic3');const W=cv.clientWidth||360,H=cv.clientHeight||230;
   const r=new THREE.WebGLRenderer({canvas:cv,antialias:!MOB,alpha:false,preserveDrawingBuffer:!MOB});r.setPixelRatio(renderer.getPixelRatio());r.setSize(W,H,false);r.setClearColor(0x08121c,1);r.localClippingEnabled=true;
   const sc=new THREE.Scene();const cam=new THREE.PerspectiveCamera(34,W/H,0.1,100);cam.position.set(-2.6,2.6,6.2);
@@ -3168,13 +3222,13 @@ window.__audit=function(){
 };
 
 /* ====== 通用性能：静态合批、标签脏检查、调度与可固定的自适应DPR ====== */
-const PERF={base:Math.min(window.devicePixelRatio||1,MOB?1.5:2),fixed:Number(window.__RO_FIXED_QUALITY)||0,activeUntil:0,lastDraw:0,raf:0,frames:0,slow:0,fast:0,qualityChanges:0,labelUpdates:0,merged:0};
+const PERF={base:Math.max(1,Math.min(window.devicePixelRatio||1,2)),fixed:Number(window.__RO_FIXED_QUALITY)||0,activeUntil:0,lastDraw:0,raf:0,frames:0,slow:0,fast:0,qualityChanges:0,labelUpdates:0,merged:0};
 function wakeRender(){PERF.activeUntil=performance.now()+1500;if(!document.hidden&&!PERF.raf&&window.__ready)PERF.raf=requestAnimationFrame(loop)}
 function updateQuality(ms){
  if(PERF.fixed)return;
  if(ms>28){PERF.slow++;PERF.fast=0}else if(ms<19){PERF.fast++;PERF.slow=0}else{PERF.slow=0;PERF.fast=0}
  const current=renderer.getPixelRatio();let next=current;
- if(PERF.slow>=45){next=Math.max(Math.min(1,PERF.base),current>1.5?1.5:current>1.25?1.25:1);PERF.slow=0}
+ if(PERF.slow>=45){next=Math.max(1,current>1.5?1.5:current>1.25?1.25:1);PERF.slow=0}
  if(PERF.fast>=240){next=Math.min(PERF.base,current+.125);PERF.fast=0}
  if(Math.abs(next-current)>.001){renderer.setPixelRatio(next);if(M3.ready)M3.r.setPixelRatio(next);PERF.qualityChanges++;resize();wakeRender()}
 }
@@ -3327,7 +3381,7 @@ const V4={mode:'plain',tour:-1,timer:null,storage:true,tourKind:'main',interval:
 };window.V4=V4;
 try{V4.mode=localStorage.getItem('ro-v4-language')==='pro'?'pro':'plain'}catch(e){V4.storage=false}
 const terms={'反渗透':'用压力使水透过膜、把大部分溶解盐留在另一侧的分离方法。','RO':'反渗透的英文缩写。','浓水':'膜分离后盐分相对集中的那股水，不等于所有场合都必须排放。','产水':'本处理单元输出的处理后水，是否合格仍需按用途判断。','电导率':'水导电能力的指标，通常可反映离子含量，但不代表全部水质。','电阻率':'水阻碍电流的能力，与电导率互为倒数，不能单独证明水完全无杂质。','回收率':'某单元产水量占进水量的比例；系统回收率按系统边界计算。','SDI':'淤积指数，反映水中颗粒造成膜堵塞倾向的试验指标。','浓差极化':'膜面附近盐浓度高于主体水流的现象，会增加分离难度。','阻垢剂':'延缓难溶盐沉积的药剂，需结合水质选型和校核。','CIP':'不拆开主体设备，通过循环清洗液清洗内部的方式。','EDI':'电去离子，用电场、树脂和离子交换膜继续去除水中离子。','软化':'用离子交换降低钙镁硬度，不等于去除所有盐。','跨膜压差':'膜两侧压力的差，是推动透水的重要因素，还要考虑渗透压。','压差':'两个测点之间的压力差，要区分滤器、膜进出口与膜两侧。','通量':'单位膜面积、单位时间透过的水量。','TDS':'溶解性总固体，用于表示水中溶解物的总体含量。','pH':'表示水的酸碱性，数值取决于水中酸碱平衡。','NaOH':'氢氧化钠，本模型用于调节酸碱性。','还原剂':'本系统中用于消除残余氯、保护膜的药剂。','联锁':'条件不满足时阻止或停止相关动作的控制逻辑。','背压':'出口侧承受的压力，膜产水侧背压过高可能损伤膜。','反洗':'让水反向经过滤层，松动并带走积下来的杂质。','再生':'恢复树脂离子交换能力的过程。','极水':'流经电极室并带走电极反应产物的水。','脱盐率':'进出水盐浓度降低的相对程度，与回收率含义不同。','ORP':'氧化还原电位，反映水的氧化或还原倾向。','余氯':'消毒后仍留在水中的含氯氧化剂。','硬度':'主要由水中钙、镁离子形成的指标。','稳态':'模型中各流量和水质不随时间变化的计算状态。','通气口':'让常压水箱与外界空气相通的开口。','保安过滤':'膜前用于拦截残余颗粒的过滤环节。','渗透压':'溶解物造成的渗透趋势，反渗透需要克服这种作用。','水锤':'流速突然变化引起的压力冲击。','膜壳':'容纳膜元件并承受运行压力的外壳。','膜元件':'实际执行膜分离的组件。','LMH':'膜通量单位，即每平方米膜面积每小时的透水升数。','DN':'管路公称直径的标记，不直接等同于实测内径。','PLC':'可编程控制器，用于执行设备控制和联锁。','EC':'电导率的缩写。','CO₂':'二氧化碳，溶于水后参与酸碱平衡。','HCO₃⁻':'碳酸氢根，一种可被膜截留的离子。','正洗':'沿正常过滤方向冲洗，排走残留细粒或盐水。'};
-const bar=document.createElement('div');bar.id='v4bar';bar.innerHTML='<button id="language">当前：通俗 · 切换专业</button><button id="glossary">术语表</button><button id="overview">回到总览</button><button id="tourStart" class="on">开始导览</button><small class="source" id="sourceLabel" title="本页为模型推断与三维演示；手册引用单独标注，未接入实测。">来源：推断 · 演示 · 手册</small><span id="persist" class="note"></span>';document.querySelector('header').after(bar);
+const bar=document.createElement('div');bar.id='v4bar';bar.innerHTML='<button id="language">通俗 / 专业</button><button id="glossary">术语表</button><button id="overview">回到总览</button><button id="tourStart" class="on">开始导览</button><small class="source" id="sourceLabel" title="本页为模型推断与三维演示；手册引用单独标注，未接入实测。">来源：推断 · 演示 · 手册</small><span id="persist" class="note"></span>';document.querySelector('header').after(bar);
 const tour=document.createElement('section');tour.id='tour';tour.hidden=true;tour.innerHTML='<div class="row"><select id="tourKind" aria-label="导览路线"><option value="main">主线速览 · 约一分钟</option><option value="detail">逐设备详解</option><option value="operation">操作流程 · 全部步骤</option></select><select id="tourSpeed" aria-label="导览速度"><option value="8000">适中 · 每步8秒</option><option value="10000">舒缓 · 每步10秒</option><option value="6000">轻快 · 每步6秒</option></select></div><div class="row"><button id="tourPlay">播放</button><button id="tourPrev">上一步</button><button id="tourNext">下一步</button><button id="tourExit">退出导览</button></div><b id="tourTitle"></b><p id="tourText"></p><div id="tourNumbers" class="note"></div><div id="tourEnd" hidden><p>导览结束，水的处理过程到纯水箱为止。</p><div class="row"><button id="tourOverview">回到总览</button><button id="tourRestart">重新开始</button></div></div>';document.querySelector('.side').prepend(tour);
 const dialog=document.createElement('dialog');dialog.id='terms';dialog.innerHTML='<button id="closeTerms">关闭术语表</button><h3>术语表</h3>'+Object.entries(terms).map(([k,v])=>'<p><b>'+k+'</b>：'+v+'</p>').join('');document.body.append(dialog);
 const tip=document.createElement('div');tip.id='termTip';tip.setAttribute('role','tooltip');tip.hidden=true;document.body.append(tip);
@@ -3386,7 +3440,7 @@ document.addEventListener('click',e=>{
  const before=calcMetrics();clearTimeout(changeTimer);V4.changes=[];if(el('metricChanges'))el('metricChanges').remove();
  setTimeout(()=>{const after=calcMetrics();V4.changes=after.map((x,i)=>({name:x[0],unit:x[1],dec:x[3],before:before[i][2],after:x[2],rate:Math.abs(before[i][2])>1e-12?Math.abs((x[2]-before[i][2])/before[i][2]):null})).filter(r=>r.name!=='设计提示条数'&&Number.isFinite(r.before)&&Number.isFinite(r.after)&&Math.abs(r.after-r.before)>1e-9).sort((a,b)=>(b.rate===null?Infinity:b.rate)-(a.rate===null?Infinity:a.rate)).slice(0,3);renderChanges();changeTimer=setTimeout(()=>{V4.changes=[];if(el('metricChanges'))el('metricChanges').remove()},6500)},0);
 },true);
-function setLanguage(mode){V4.mode=mode;document.documentElement.dataset.language=mode;tip.hidden=true;try{if(!window.PRESENT||!PRESENT.active)localStorage.setItem('ro-v4-language',mode)}catch(e){V4.storage=false}el('language').textContent=mode==='plain'?'当前：通俗 · 切换专业':'当前：专业 · 切换通俗';el('persist').textContent=V4.storage?'':'偏好仅在本次页面有效';renderOp();renderEq();renderCalc();renderBasis();_lastStation=-2;dropLive(true)}
+function setLanguage(mode){V4.mode=mode;document.documentElement.dataset.language=mode;tip.hidden=true;try{if(!window.PRESENT||!PRESENT.active)localStorage.setItem('ro-v4-language',mode)}catch(e){V4.storage=false}el('language').textContent=mode==='plain'?'通俗 / 专业':'专业 / 通俗';el('language').setAttribute('aria-label',mode==='plain'?'当前通俗，切换专业':'当前专业，切换通俗');el('persist').textContent=V4.storage?'':'偏好仅在本次页面有效';renderOp();renderEq();renderCalc();renderBasis();_lastStation=-2;dropLive(true)}
 function tourNodes(){
  if(V4.tourKind==='operation')return MODES.flatMap((m,mi)=>m.steps.map((s,si)=>({kind:'step',m:mi,s:si,k:V4.stepEq(s),title:s.t,text:V4.explain(s)})));
  const ks=V4.tourKind==='detail'?Object.keys(EQ):['T-101','F-101','F-102','S-101','RO-101','RO-201','EDI-301','T-301'];
@@ -3504,7 +3558,7 @@ const mobileStyle=document.createElement('style');mobileStyle.textContent=`
 `;document.head.append(mobileStyle);
 // 手机标签文案简化，只改变导航标题，不改变任何专业面板正文。
 const shortTabs=['流程','水滴旅程','设备','参数','依据'];document.querySelectorAll('#tb [data-act="tab"]').forEach((b,i)=>{b.dataset.fullTitle=b.textContent;if(mobileLayout())b.textContent=shortTabs[i]});
-matchMedia('(max-width:1000px)').addEventListener('change',()=>{document.querySelectorAll('#tb [data-act="tab"]').forEach((b,i)=>b.textContent=mobileLayout()?shortTabs[i]:b.dataset.fullTitle)});
+const mobileMedia=matchMedia('(max-width:1000px)'),mobileMediaChange=()=>{document.querySelectorAll('#tb [data-act="tab"]').forEach((b,i)=>b.textContent=mobileLayout()?shortTabs[i]:b.dataset.fullTitle)};if(mobileMedia.addEventListener)mobileMedia.addEventListener('change',mobileMediaChange);else mobileMedia.addListener(mobileMediaChange);
 window.mobileReady=true;syncMobile();
 
 // 独立于 UI 浅深主题；场景右上方预留一行，手机为 44px 点击区。
@@ -3513,6 +3567,34 @@ const roomStyleCSS=document.createElement('style');roomStyleCSS.textContent=`#ro
 
 // 启动后的总览优先于 rebuild/gotoStep 的初始设备飞行。
 overview();
+
+/* 最后一个界面模块完成后调用，使新增面板也服从抽屉/安全区规则。 */
+function installMobilePolish(){
+ const extra=document.createElement('details');extra.id='mobileExtras';extra.innerHTML='<summary>更多工具</summary><div id="mobileExtraBody"></div>';el('v4bar').append(extra);
+ const relocations=[];['waterReportOpen','compareOpen','costOpen','demoAudience','exportPlan','hotkeys'].forEach(id=>{const n=el(id);if(!n)return;const anchor=document.createComment('mobile '+id);n.before(anchor);relocations.push({n:n,anchor:anchor})});
+ function place(){const mob=mobileLayout();relocations.forEach(r=>mob?el('mobileExtraBody').append(r.n):r.anchor.after(r.n));if(!mob)extra.open=false;resize();syncMobile()}
+ window.addEventListener('resize',place);place();
+ // 避免旧iOS缺少MediaQueryList.addEventListener时初始化中断（基础监听在下方统一兼容）。
+ ['gesturestart','gesturechange'].forEach(type=>document.addEventListener(type,e=>{if(e.target===cvEl)e.preventDefault()},{passive:false}));
+ const style=document.createElement('style');style.id='mobilePolish';style.textContent=`
+ html{overscroll-behavior:none}body{touch-action:manipulation}#cv{touch-action:none}#webglFallback{position:absolute;inset:16px 16px auto;padding:18px;background:var(--cd);color:var(--tx);border:1px solid var(--bd);border-radius:10px;z-index:9;font-size:14px;line-height:1.7}#webglFallback button{min-height:44px}#mobileExtras{display:none}
+ @media(min-width:1001px){.side{overflow:auto}.pane.on{min-height:120px}#alongPanel{max-height:245px;overflow:auto}#opsPanel{max-height:190px;overflow:auto}}
+ @media(max-width:1000px){
+ html,body{width:100%;max-width:100%;overflow:hidden}.main,#st,.side,#sheetBody,.pane{min-width:0;max-width:100%}body{padding-top:env(safe-area-inset-top,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+ header{height:44px;min-height:44px;overflow:hidden}header b{font-size:13px}header button{flex-shrink:0}#v4bar{display:flex;height:48px;min-height:48px;flex-wrap:nowrap;gap:4px;padding:2px 6px;overflow-x:auto;overflow-y:hidden;flex-shrink:0}#v4bar>button{flex:0 0 auto;min-width:60px;font-size:13px!important}#v4bar #sourceLabel,#persist,#overview{display:none!important}#viewTools{display:flex;flex-shrink:0}#v4bar #viewTools button{min-width:44px;font-size:13px!important}#v4bar #demoAudience{grid-area:auto}#mobileExtras{display:block;flex-shrink:0;font-size:13px}#mobileExtras>summary{display:flex;align-items:center;padding:0 8px;min-height:44px;cursor:pointer}#mobileExtraBody{position:fixed;top:calc(94px + env(safe-area-inset-top,0px));left:12px;right:12px;z-index:70;background:var(--cd);border:1px solid var(--bd);border-radius:10px;padding:12px;display:flex;gap:8px;flex-wrap:wrap;max-height:55vh;overflow:auto;box-shadow:0 8px 30px #0005}#mobileExtras:not([open])>#mobileExtraBody{display:none}#mobileExtraBody #hotkeys{display:block}#mobileExtraBody #hotkeys p{position:static;width:auto}#mobileExtraBody>*{flex:1 1 44%;max-width:100%;font-size:13px}#mobileExtraBody #demoAudience{display:block;max-width:100%}
+ #flowBar{height:44px;min-height:44px;max-width:100%;overflow-x:auto}#keyFigures{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));height:auto;min-height:100px;align-items:center;gap:0}#keyFigures>div{min-width:0;min-height:44px;padding:2px 6px;white-space:normal;overflow:hidden}#keyFigures>div small{font-size:13px;line-height:16px}#keyFigures small span{display:none}#keyFigures b{font-size:21px;line-height:25px}#keyFigures em{display:inline-block;white-space:nowrap;font-size:13px;margin-left:2px}#keyFigures>#waterCase{grid-column:1/4;width:100%;min-width:0;padding:0 6px;display:flex;justify-content:space-between}#waterCase label{display:flex;align-items:center;gap:6px;font-size:13px}#waterCase select{font-size:16px;width:180px;max-width:55vw}#caseSource{display:none}#customEdit{font-size:13px;min-width:80px}
+ #scenarioAssumptions{display:none}#scenarioAssumptions[open]{width:auto}#scenarioAssumptions[open]{display:block;top:100px;left:12px;right:12px;max-width:none}#caseNotice{font-size:13px;line-height:18px;height:38px;min-height:38px;max-height:38px;padding:2px 8px;overflow:auto}#scenarioCompliance{font-size:13px;padding:2px 8px;max-height:38px;line-height:18px}
+ .side{height:56px;max-height:calc(100% - 50px);display:flex}.side.sheetOpen{height:72%}#sheetHandle{height:56px;min-height:56px}.side:not(.sheetOpen) #tb,.side:not(.sheetOpen) #alongPanel,.side:not(.sheetOpen) #opsPanel{display:none!important}.side.sheetOpen #tb{height:48px;min-height:48px;order:0;flex-shrink:0}.side.sheetOpen #sheetBody{display:block;order:1;overflow:auto;flex:1}#opsPanel{position:static!important;left:auto;top:auto;width:auto!important;margin:0}#tour p,.trendWindow small,.simBadge,.publicSource,#waterLegend span,#sheetState{font-size:13px!important}#alongChart{height:auto!important}.side.sheetOpen #alongPanel,.side.sheetOpen #opsPanel{max-height:none;flex-shrink:0;overflow:visible}#alongPanel,#opsPanel{order:2}.side.sheetOpen{overflow:auto}#sheetHandle{position:sticky;top:0;z-index:2}#sheetBody{flex:none!important}#lg{bottom:64px}#waterLegend{bottom:114px;max-width:calc(100% - 16px)}
+ .pane,.pane p,.pane td,.pane th,.pane small,#alongPanel,#alongPanel small,#alongPanel label,#alongPanel table,#productCompare table,#costFields label,#costFields small,.costRow,#sourceLabel,#opsPanel,#opsPanel small,#opsPanel button,#opsPanel span,#opsPanel b,dialog small,dialog p{font-size:13px!important;line-height:1.55}button,select,input,summary,a,[data-act],.lb,.term{min-width:44px!important;min-height:44px!important}input,select,textarea{font-size:16px!important}input[type=checkbox]{width:44px;height:44px;vertical-align:middle;flex-shrink:0}summary{align-content:center}button,summary,#lg{font-size:13px!important}button{touch-action:manipulation}.lb{font-size:13px;line-height:42px}.lb.i{font-size:13px;line-height:42px}#tb button{font-size:13px;padding:4px}#costDialog{width:94vw;padding:12px;max-height:85dvh}#costFields,#costResults{grid-template-columns:minmax(0,1fr)}#costFields input{min-width:0!important}dialog{max-width:94vw;padding:12px;overflow:auto}dialog table{font-size:13px}#productTableWrap{overflow:auto}#productCompare table{min-width:600px}#alongTools{flex-wrap:wrap}#alongRawFields{grid-template-columns:repeat(3,minmax(0,1fr))}#webglFallback{inset:8px 8px auto;font-size:13px;padding:12px}
+ .presenting #demoTools{height:auto;min-height:44px}.presenting #audienceCard{max-height:54%;overflow:auto}.presenting #audienceSubtitle{font-size:13px}#scenarioAssumptionText{font-size:13px}
+ }
+ @media(max-width:1000px) and (max-height:500px){
+ header{display:none}#v4bar{height:44px;min-height:44px}#flowBar{display:none}#keyFigures{display:flex;flex-wrap:nowrap;min-height:56px;height:56px}#keyFigures>div{flex:1;min-width:95px;padding:0 4px}#keyFigures>div small{font-size:13px}#keyFigures>#waterCase{width:245px;flex:0 0 245px;max-width:245px}#waterCase select{width:165px}#customEdit{display:none}#caseNotice{display:none}#scenarioCompliance{height:24px;max-height:24px;overflow:auto}#mobileExtraBody{top:48px}.side{left:auto;width:44%;height:56px}.side.sheetOpen{height:100%;max-height:100%;border-radius:12px 0 0 0}#waterLegend{bottom:8px}#lg{bottom:8px;left:8px}#audienceCard{width:70%}
+ }
+ `;document.head.append(style);requestAnimationFrame(()=>{resize();syncMobile();if(!UI.sel)overview()});
+ const assumptionTool=document.createElement('button');assumptionTool.id='showAssumptions';assumptionTool.textContent='假设补全明细';assumptionTool.onclick=()=>{extra.open=false;scenarioDetails.open=!scenarioDetails.open};el('mobileExtraBody').append(assumptionTool);
+ if(window.__RO_NO_WEBGL){const p=document.createElement('div');p.id='webglFallback';p.setAttribute('role','status');p.innerHTML='<b>此设备或浏览器暂不支持3D（WebGL）</b><p>仍可查看模拟数值面板与P&ID工艺图。可尝试更新Safari/微信，或启用硬件加速后重新打开。</p><button id="fallbackPID">查看P&ID</button> <button id="fallbackNumbers">查看数值</button>';stEl.append(p);el('fallbackPID').onclick=()=>{el('viewPID').click()};el('fallbackNumbers').onclick=()=>{switchTab('pCalc');if(mobileLayout())setSheet(true)};}
+}
 
 /* 客户界面：所有新增颜色/数字取当前模型；取景与显示不参与计算或阀路。 */
 const PRESENT={active:false,saved:null,ownedFullscreen:false,overview:true};window.PRESENT=PRESENT;
@@ -3809,7 +3891,7 @@ function membraneSVG(){let h='<svg viewBox="0 0 900 365" role="img" aria-label="
  labels.forEach(l=>{h+='<path d="M'+l[1]+' '+(l[2]+5)+'L'+l[3]+' '+l[4]+'" stroke="#6b929f" fill="none"/><circle cx="'+l[3]+'" cy="'+l[4]+'" r="2.5" fill="#b6d5db"/><text x="'+l[1]+'" y="'+l[2]+'" fill="#dceef2" font-size="13">'+l[0]+'</text>'});return h+'</svg>'}
 membraneDialog.innerHTML='<div class="roundHead"><div><small>FIG 01 · 结构 / 动作示意 · 非比例</small><h2>一张膜怎样卷成一支元件</h2></div><button id="membraneClose">关闭 ×</button></div><p>将保护外包层和端盘移开，再把一只膜袋展开。进水沿隔网扫过膜面；透过膜的水进入袋内，沿产水隔网汇入中心管。盐大多留在进水侧，随浓水带走，实际有少量盐透过。</p><div class="membraneFigure">'+membraneSVG()+'</div><div class="membraneBottom"><div><b id="membraneReadout"></b><p>蓝点：水透膜并汇入中心管 · 橙点：盐留在进水侧<br>箭头为路径示意，粒子数量、尺寸和时间不代表模型比例。</p><button id="membranePlay">暂停动画</button> <button id="membraneJourney">在水滴旅程中查看</button></div><div><canvas id="membraneMicro" width="720" height="420"></canvas><small>与既有 RO 微观机理共用动画和当前模型元件</small></div></div>';
 const MEMBRANE={eq:'RO-101',playing:true,open:false,t:0,last:0,raf:0,savedDrop:false};
-function membraneFrame(now){if(!membraneDialog.open)return;const S=DROP.st.find(s=>s.id===MEMBRANE.eq);if(!document.hidden){if(MEMBRANE.playing)MEMBRANE.t+=Math.min(.1,(now-MEMBRANE.last)/1000||0);const t=MEMBRANE.t,u=(t%6.5)/6.5,phase=u<.4?'feed':u<.55?'cross':'collect',v=u<.4?u/.4:u<.55?(u-.4)/.15:(u-.55)/.45;const water=el('membraneWater');let x,y;if(u<.4){x=400+60*v;y=150+9*v}else if(u<.55){x=460+33*v;y=159+67*v}else{x=493-214*v;y=226-4*v}water.setAttribute('cx',x);water.setAttribute('cy',y);el('membraneSalt').setAttribute('cx',510+90*((t*.22)%1));if(S){micDraw(el('membraneMicro').getContext('2d'),S,{phase:phase,u:v},t);el('membraneReadout').textContent=MEMBRANE.eq+' · '+(phase==='feed'?'沿膜面进水':phase==='cross'?'水透过膜片':'净水汇入中心管')+(V4.mode==='pro'?' · 局部通量 '+FN(S.els[S.jm].J,1)+' LMH（模型）':'')}}MEMBRANE.last=now;MEMBRANE.raf=requestAnimationFrame(membraneFrame)}
+function membraneFrame(now){if(!membraneDialog.open)return;const S=DROP.st.find(s=>s.id===MEMBRANE.eq),e=stationElement(S);if(!document.hidden){if(MEMBRANE.playing)MEMBRANE.t+=Math.min(.1,(now-MEMBRANE.last)/1000||0);const t=MEMBRANE.t,u=(t%6.5)/6.5,phase=u<.4?'feed':u<.55?'cross':'collect',v=u<.4?u/.4:u<.55?(u-.4)/.15:(u-.55)/.45;const water=el('membraneWater');let x,y;if(u<.4){x=400+60*v;y=150+9*v}else if(u<.55){x=460+33*v;y=159+67*v}else{x=493-214*v;y=226-4*v}water.setAttribute('cx',x);water.setAttribute('cy',y);el('membraneSalt').setAttribute('cx',510+90*((t*.22)%1));if(S&&e){micDraw(el('membraneMicro').getContext('2d'),S,{phase:phase,u:v},t);el('membraneReadout').textContent=MEMBRANE.eq+' · '+(phase==='feed'?'沿膜面进水':phase==='cross'?'水透过膜片':'净水汇入中心管')+(V4.mode==='pro'?' · 局部通量 '+FN(e.J,1)+' LMH（模型）':'')}}MEMBRANE.last=now;MEMBRANE.raf=requestAnimationFrame(membraneFrame)}
 function openMembrane(k){MEMBRANE.eq=k;MEMBRANE.savedDrop=DROP.playing;DROP.playing=false;MEMBRANE.playing=!matchMedia('(prefers-reduced-motion: reduce)').matches;MEMBRANE.last=performance.now();el('membranePlay').textContent=MEMBRANE.playing?'暂停动画':'继续动画';membraneDialog.showModal();MEMBRANE.raf=requestAnimationFrame(membraneFrame)}
 el('membraneClose').onclick=()=>membraneDialog.close();membraneDialog.addEventListener('close',()=>{cancelAnimationFrame(MEMBRANE.raf);DROP.playing=MEMBRANE.savedDrop;wakeRender()});el('membranePlay').onclick=()=>{MEMBRANE.playing=!MEMBRANE.playing;el('membranePlay').textContent=MEMBRANE.playing?'暂停动画':'继续动画'};
 el('membraneJourney').onclick=()=>{MEMBRANE.savedDrop=false;membraneDialog.close();switchTab('pDrop');dropJump(DROP.st.findIndex(s=>s.id===MEMBRANE.eq));DROP.follow=true;focusDropCam()};
@@ -3873,12 +3955,12 @@ if(typeof module!=='undefined'&&module.exports)module.exports=ALONG_MODEL;
 
 /* 单一模拟快照：水力复用RO.design，离子水质取同一RO.design流股，教学指标复用ALONG_MODEL；不参与结垢放行。 */
 const SIM=(function(){
- const note='模拟计算（假设原水），非实测';
+ const note='模拟计算（假设补全），非实测';
  const prices={electric:.70,water:5.99,anti:4,dose:3,cipPrice:6,cipTimes:4,cipKg:50,membrane:4000,memYears:3,edi:25000,ediYears:5,pumpEta:.70,motorEta:.93,ediKwh:.10,hours:8000};
  let last=null,raw=Object.assign({},ALONG_MODEL.raw),wave=false,time=0,revision=0;
  function setWater(input,w,t){const sig=JSON.stringify([input,w,w?t:0]);if(sig!==setWater.sig){setWater.sig=sig;raw=Object.assign({},input);wave=w;time=t;revision++}}
  function get(){
-  const sig=JSON.stringify(prices)+'|'+revision;if(last&&last.design===D&&last.sig===sig)return last;
+  const sig=JSON.stringify(prices)+'|'+revision+'|'+SCENARIO.revision;if(last&&last.design===D&&last.sig===sig)return last;
   const d=D,F=Object.assign({},d.flow),p=RO.size(d).press;
   const quality=stream=>{const v=RO.props(stream);return {EC:v.EC,TDS:v.TDS,hard:v.hard,SiO2:v.mg.SiO2}};
   const pairs={'T-101':[d.raw,d.raw],'F-101':[d.raw,d.s1],'F-102':[d.s1,d.s2],'S-101':[d.s2,d.s3],'D-101':[d.s3,d.s3],'F-103':[d.s3,d.s4],'RO-101':[d.feed1,d.r1.perm],'T-201':[d.r1.perm,d.mid],'D-103':[d.mid,d.feed2],'RO-201':[d.feed2,d.r2.perm],'EDI-301':[d.r2.perm,d.edi.prod],'T-301':[d.edi.prod,d.edi.prod]},steady={};
@@ -3897,25 +3979,32 @@ const SIM=(function(){
   const actualStreams={raw:d.raw,mmf:d.s1,acf:d.s2,sof:d.s3,cf:d.s4,feed1:d.feed1,perm1:d.r1.perm,mid:d.mid,feed2:d.feed2,perm2:d.r2.perm,ediProd:d.edi.prod,conc1:d.r1.conc,conc2:d.r2.conc,ediRej:d.edi.rej};
   Object.keys(actualStreams).forEach(k=>streams[k]=Object.assign({},streams[k],quality(actualStreams[k])));
   units['P-201'].in=units['P-201'].out=Object.assign({},units['F-103'].out,quality(d.feed1));units['P-201'].rho=1/units['P-201'].out.EC;
-  const sf=RO.unitCF(RO.unitSOF(RO.unitACF(RO.unitMMF(RO.rawStream(F.Qprod/d.inp.rec1,d.inp.T,d.inp.EC))))),A=RO.ASSUME;
+  const singleRecovery=RO.props(d.raw).TDS>10000?Math.min(d.inp.rec1,.65):d.inp.rec1;
+  const sf=RO.unitCF(RO.unitSOF(RO.unitACF(RO.unitMMF(RO.rawStream(F.Qprod/singleRecovery,d.inp.T,d.inp.EC))))),A=RO.ASSUME;
   let sv=Math.max(1,Math.floor(F.Qprod*1000/(d.inp.Jd1*A.areaEl)/d.inp.ne1));if(F.Qprod*1000/(sv*d.inp.ne1*A.areaEl)>d.inp.Jd1*A.JmaxK)sv++;
   const sn2=sv>=2?Math.max(1,Math.round(sv/3)):0,sr=RO.runPass(sf,{Qp:F.Qprod,nv:[sv-sn2,sn2],ne:d.inp.ne1,Pperm:.3}),one=units['RO-101'];
   const se=(sf.Q*(sr.Pf-2)*.027778/prices.pumpEta+sf.Q*4.05*.027778/prices.pumpEta)/prices.motorEta/F.Qprod;
-  const compare={single:[F.Qprod,sf.Q,d.inp.rec1*100,one.out.EC,one.rho,sr.Pf,se],current:[F.Qprod,F.Qfresh,F.recSys*100,units['T-301'].out.EC,water.resistivity,p.hpOut,energy]};
-  last={streams:streams,compare:compare,design:d,sig:sig,flow:F,rec1:d.inp.rec1,rec2:d.inp.rec2,CF1:1/(1-d.inp.rec1),CF2:1/(1-d.inp.rec2),CFSys:1/(1-F.recSys),press:p,pump:pump,water:water,units:units,energy:energy,costs:costs,total:total,shares:shares,nMem:nMem,annual:annual};return last;
+  const singleQuality=RO.props(sr.perm);
+  const compare={single:[F.Qprod,sf.Q,singleRecovery*100,singleQuality.EC,singleQuality.rho,sr.Pf,se],current:[F.Qprod,F.Qfresh,F.recSys*100,units['T-301'].out.EC,water.resistivity,p.hpOut,energy]};
+  const pv=RO.props(d.edi.prod),fv=RO.props(d.r2.perm),productValues={EC:pv.EC,rho:pv.rho,SiO2:pv.mg.SiO2,SiMicro:pv.mg.SiO2*1000,na:pv.mg.Na*1000,k:pv.mg.K*1000,cl:pv.mg.Cl*1000,no3:pv.mg.NO3*1000,so4:pv.mg.SO4*1000};
+  const stages={ro1:d.r1.stageSummary.map(s=>({feed:s.qFeedVessel,concentrate:s.qConcVessel,dp:s.dp,recovery:s.rec,flux:s.flux})),ro2:d.r2.stageSummary.map(s=>({feed:s.qFeedVessel,concentrate:s.qConcVessel,dp:s.dp,recovery:s.rec,flux:s.flux}))};
+  const warnings=RO.warnings(d);if(d.r1.Pf>9.5305704071*1.1||d.r2.Pf>12.5127182575*1.1)warnings.push('超过默认泵方案模拟扬程：一级9.53 / 二级12.51 bar；需重新核实泵扬程/耐压及膜选型，当前费用按理论压力重新选泵估算');if(SCENARIO.key==='salt')warnings.push('高盐维持请求回收率需厂家WAVE及结垢复核；离子强度模型与固定脱除率属外推，非可运行保证');if(d.r1.Pf>41||d.r2.Pf>41)warnings.push('超出本演示泵/苦咸水膜设计筛查边界41 bar，需重新选泵选膜；当前仅为模拟外推');if(d.r1.Pf>59.99||d.r2.Pf>59.99)warnings.push('达到求解压力上限60 bar，目标流量不可保证');if(d.inp.rec1>.8)warnings.push('一级回收率超过80%，须专项核实浓差极化及结垢');if(fv.hard>.5||fv.mg.SiO2>.5||fv.CO2mg>3||fv.EC>40)warnings.push('EDI进水超筛查条件：EC '+fv.EC.toFixed(3)+' µS/cm（≤40为保守模拟筛查），硬度 '+fv.hard.toFixed(4)+'（≤0.5）、SiO₂ '+fv.mg.SiO2.toFixed(4)+'（≤0.5）、CO₂ '+fv.CO2mg.toFixed(4)+'（≤3）mg/L；固定去除率外推，不能保证实际产水');
+  const balances={ro1:d.feed1.Q-d.r1.perm.Q-d.r1.conc.Q,ro2:d.feed2.Q-d.r2.perm.Q-d.r2.conc.Q,edi:d.r2.perm.Q-d.edi.prod.Q-d.edi.rej.Q,system:F.Qfresh-F.Qprod-F.drain,target1:d.r1.perm.Q-F.Q1perm,target2:d.r2.perm.Q-F.Q2perm};
+  last={stages:stages,productValues:productValues,warnings:warnings,balances:balances,scenario:SCENARIO.current(),streams:streams,compare:compare,design:d,sig:sig,flow:F,rec1:d.inp.rec1,rec2:d.inp.rec2,CF1:1/(1-d.inp.rec1),CF2:1/(1-d.inp.rec2),CFSys:1/(1-F.recSys),press:p,pump:pump,water:water,units:units,energy:energy,costs:costs,total:total,shares:shares,nMem:nMem,annual:annual};return last;
  }
  function signals(){const s=get(),f=s.flow,u=s.units;const v={p1:s.press.hpOut,p2:s.press.ro2Out,raw:u['T-101'].out.EC,ec1:u['RO-101'].out.EC,ec2:u['RO-201'].out.EC,rho:s.water.resistivity,flow:f.Qprod,dose:100,recovery:f.recSys*100,q1:f.Q1perm,q2:f.Q2perm,qraw:f.Qfresh,qc1:f.Q1c,qrec:f.Q2c,ecRec:s.streams.conc2.EC,pc2:s.press.ro2Conc,pc1:s.press.ro1Conc,bp1:.3,bp2:3.2};
   Object.assign(v,{'M.pt1':s.press.rawPumpOut,'A.pt1':s.press.mmfOut,'S.pt1':s.press.acfOut,'CF.pt1':s.press.sofOut,'CF.pt2':s.press.cfOut,'RAW.pi':s.press.rawPumpOut,'HPS.pt':2,'CIP.pi':4,'CIP.ft':Z.pump.cip.Q,'MID.fft':f.Q2,'ED.cft':f.ediRet,'MID.ae':D.inp.phTarget,'A.ae':u['F-102'].out.Cl2});return v;
  }
- return {note:note,prices:prices,get:get,setWater:setWater,signals:signals};
+ function assess(limits){const v=get().productValues;return limits.map(r=>{const metric=r.metric||(r.unit==='μg/L'&&['na','k','cl','no3','so4'].indexOf(r.id)>=0?r.id:null),x=metric?v[metric]:null,known=typeof x==='number'&&Number.isFinite(x);return Object.assign({},r,{value:known?x:null,status:!known?'需实测':(r.max?x<=r.limit:x>=r.limit)?'达标（模拟单项）':'不达标'})})}
+ return {note:note,prices:prices,get:get,setWater:setWater,signals:signals,assess:assess};
 })();
 
 /* 模拟展示与公开结垢结论分开：SIM统一读数；生产认证仍需完整实测。 */
-const PUB={key:'tap',decision:RO.publicDesign('tap',INP.rec1)};
+const PUB={key:'default',decision:RO.publicDesign('default',INP.rec1)};
 const publicFormat=(v,n)=>v==null||!Number.isFinite(v)?'需补测':Number(v).toFixed(n==null?2:n);
 const cited=(v,source)=>'<span class="publicValue">'+v+'</span> <small class="publicSource">['+source+']</small>';
 const noData='需实测认证',publicNote=SIM.note+'；模拟值，未经实测认证。';
-function publicWater(){return PUBLIC_BASIS.waters[PUB.key]}
+function publicWater(){return PUBLIC_BASIS.waters[PUB.key]||{name:SCENARIO.names[PUB.key],source:SIM.note}}
 function simValue(path,v,unit,dec,scale){scale=scale||1;return '<span data-sim="'+path+'" data-value="'+v+'" data-scale="'+scale+'">'+publicFormat(v*scale,dec)+'</span> '+(unit||'')+' <small class="simBadge">'+SIM.note+'</small>'}
 function publicNumbers(){const s=SIM.get();['keyFlow','keyRecovery','keyQuality'].forEach((id,i)=>{const e=el(id),v=[s.flow.Qprod,s.flow.recSys*100,s.water.resistivity][i];e.textContent=publicFormat(v,[2,2,2][i]);e.dataset.value=v;e.parentElement.title=SIM.note+'；点击查看模拟趋势';e.parentElement.querySelector('small span').textContent=SIM.note})}
 refreshKeyFigures=publicNumbers;
@@ -3926,12 +4015,12 @@ function publicEDI(){const s=SIM.get();return '<p>'+publicNote+'</p><table class
  ['进水 / 出水压力',simValue('press.ediIn',s.press.ediIn,'bar',2)+' / '+simValue('press.ediOut',s.press.ediOut,'bar',2)],
  ['进水条件',cited('CO₂≤3 / 硬度≤0.5 / SiO₂≤0.5 mg/L；符合Table1才有≥15 MΩ·cm条件保证','DuPont 45-D01915 Rev2 Table1–3')]
  ].map(r=>'<tr><th>'+r[0]+'</th><td>'+r[1]+'</td></tr>').join('')+'</table><p>水箱储存CO₂未计；手册未保证硅、TOC、钠。回流通风及气体/余氯条件须核实。[D2 §4.3.2]</p>'}
-function publicStatus(){const w=publicWater();caseNotice.innerHTML='<b>'+SIM.note+'</b><span>模拟值，未经实测认证；公开情景“'+w.name+'”仅用于结垢筛查，缺项需补测；模拟水质基于稳态模型完整离子假设原水（默认25℃、EC约833 µS/cm），不随此下拉或客户报告改变。</span>';caseNotice.dataset.state='simulation';el('caseSource').textContent='模拟原水：稳态离子假设（默认EC约833 µS/cm）';el('caseSelect').value=PUB.key;el('customEdit').hidden=true;WATER_STATE.key=PUB.key;WATER_STATE.name='假设原水';WATER_STATE.source=SIM.note;WATER_STATE.notes=['公开情景只作结垢筛查，不替代模拟假设'];publicNumbers()}
+function publicStatus(){const a=SCENARIO.current();caseNotice.textContent=SIM.note+' · '+a.name+'；'+a.assumptions.join('；');caseNotice.dataset.state='simulation';el('caseSource').textContent=a.name+' · 模拟计算/非实测';el('caseSelect').value=SCENARIO.key;el('customEdit').hidden=SCENARIO.key!=='custom';WATER_STATE.key=SCENARIO.key;WATER_STATE.name=a.name;WATER_STATE.source=SIM.note;WATER_STATE.notes=a.assumptions;publicNumbers()}
 caseMessage=publicStatus;
-function applyPublicCase(key){if(!PUBLIC_BASIS.waters[key])return;PUB.key=key;PUB.decision=RO.publicDesign(key,INP.rec1);INP.waterCase=key;INP.productionRec1=0;D.public=PUB.decision;OPS.kind='normal';OPS.elapsed=0;OPS.foul=0;OPS.affected.clear();OPS.model=D;opsVisual();pauseTour();DROP.playing=false;stopAuto();publicStatus();renderCalc();renderBasis();renderEq();renderOp();refreshWaterQuality();wakeRender()}
+function applyPublicCase(key){if(!SCENARIO.names[key])return;SCENARIO.select(key,key==='custom'&&typeof WQ!=='undefined'?WQ.raw:{});PUB.key=key;INP.waterCase=key;if(window.scenarioReady){WQ.source=key==='custom'?'customer':'scenario';scenarioRecalculate(true)}else publicStatus()}
 applyWaterCase=key=>applyPublicCase(key);
 ['tap','ground','salt'].forEach(k=>WATER_CASES[k]={name:PUBLIC_BASIS.waters[k].name,raw:PUBLIC_BASIS.waters[k],T:k==='salt'?16.6:null});
-el('caseSelect').innerHTML=Object.keys(PUBLIC_BASIS.waters).map(k=>'<option value="'+k+'">'+PUBLIC_BASIS.waters[k].name+'（结垢参考）</option>').join('');el('caseSelect').onchange=()=>applyPublicCase(el('caseSelect').value);el('customEdit').hidden=true;
+el('caseSelect').innerHTML=Object.keys(SCENARIO.names).map(k=>'<option value="'+k+'">'+SCENARIO.names[k]+'</option>').join('');el('caseSelect').onchange=()=>applyPublicCase(el('caseSelect').value);el('customEdit').hidden=true;
 function publicInputs(){const w=publicWater();return '<table class="publicTable">'+['T','Ca','Mg','Na','K','Cl','SO4','HCO3','SiO2','Ba','Sr','Fe'].map(k=>'<tr><th>'+k+'</th><td>'+(w[k]==null?'需补测':cited(publicFormat(w[k],3),w.source))+'</td></tr>').join('')+'</table>'}
 function simHydraulics(){const s=SIM.get(),rows=[];
  const flowNames={Qprod:'系统产水量',ediF:'EDI进水量',ediElec:'EDI极水量',ediRej:'EDI总浓水量',ediRet:'EDI回流量',Q2perm:'二级RO产水量',Q2:'二级RO进水量',Q2c:'二级RO浓水量',Q1perm:'一级RO产水量',Q1:'一级RO进水量',Q1c:'一级RO浓水量',Qfresh:'补入原水量',recSys:'系统回收率',recycle:'二级RO回流量',drain:'系统排水量'};
@@ -3939,12 +4028,13 @@ function simHydraulics(){const s=SIM.get(),rows=[];
  const add=(path,label,v,unit,scale)=>rows.push('<tr><th>'+label+'</th><td>'+simValue(path,v,unit,6,scale)+'</td></tr>');
  Object.keys(s.flow).forEach(k=>add('flow.'+k,flowNames[k],s.flow[k],k==='recSys'?'%':'m³/h',k==='recSys'?100:1));
  Object.keys(s.press).forEach(k=>add('press.'+k,pressNames[k],s.press[k],'bar(g)'));
+ Object.keys(s.stages).forEach(k=>s.stages[k].forEach((st,i)=>Object.keys(st).forEach(m=>add('stages.'+k+'.'+i+'.'+m,(k==='ro1'?'一级RO':'二级RO')+' 第'+(i+1)+'段 · '+{feed:'单壳进水',concentrate:'单壳浓水',dp:'单壳压降',recovery:'段回收率',flux:'平均通量'}[m],st[m],m==='recovery'?'%':m==='dp'?'bar':m==='flux'?'LMH':'m³/h',m==='recovery'?100:1))));
  Object.keys(s.pump).forEach(k=>Object.keys(s.pump[k]).forEach(id=>add('pump.'+k+'.'+id,{raw:'原水泵',hp1:'一级高压泵',hp2:'二级高压泵'}[k]+' · '+{Q:'流量',Pd:'出口压力',Ps:'入口压力',dp:'压差',kw:'轴功率'}[id],s.pump[k][id],id==='Q'?'m³/h':id==='kw'?'kW':'bar')));
  return '<details id="simHydraulics"><summary>模拟流量、沿程压力与泵功率明细</summary><table class="publicTable">'+rows.join('')+'</table></details>'}
 renderCalc=function(){const s=SIM.get();el('pCalc').innerHTML='<h3>模拟水量与能耗</h3><p>'+publicNote+'</p><div id="simSummary">'+[
  ['产水','flow.Qprod',s.flow.Qprod,'m³/h'],['补入原水','flow.Qfresh',s.flow.Qfresh,'m³/h'],['总排水','flow.drain',s.flow.drain,'m³/h'],['系统回收率','flow.recSys',s.flow.recSys,'%',100],['一级CF','CF1',s.CF1,''],['二级CF','CF2',s.CF2,''],['系统CF','CFSys',s.CFSys,''],['总电耗','energy',s.energy,'kWh/m³']
  ].map(a=>'<p>'+a[0]+'：'+simValue(a[1],a[2],a[3],5,a[4])+'</p>').join('')+'</div>'+simHydraulics()+'<button data-cost-open>吨水成本计算器</button><p>水量：补入原水=产水+排水；Y=产/进；CF=1/(1−Y)。内部RO2与EDI回流不重复计入系统边界。</p><details><summary>公开情景原始输入（独立结垢依据）</summary>'+publicInputs()+'</details>'};
-renderBasis=function(){el('pBasis').innerHTML='<h3>模拟依据与边界</h3><p>'+publicNote+' 流程止于纯水箱T-301。</p><p>水力：RO.design()；Q=11.4 m³/h，配置回收率与滑块同步，内部回流闭合。压力由膜通量、渗透压与流道压降迭代；泵轴功率=Q·ΔP·0.027778/η。</p><p>水质：EC/TDS/硬度/SiO₂取同一稳态离子模型流股（含回流、软化及调pH）；原水默认25℃、EC约833 µS/cm。公开原水情景与客户报告只用于独立结垢筛查，不改变模拟离子组成。余氯、浊度、SDI仍为教学假设。电阻率=1/EC。未计水箱储存污染/吸收CO₂，不能用作生产认证。</p>'+publicEDI()+'<h4>公开来源（本地存档，离线文本）</h4><ul>'+Object.keys(PUBLIC_BASIS.sources).map(k=>'<li>['+k+'] '+PUBLIC_BASIS.sources[k]+'</li>').join('')+'</ul><p>成本：资料_公开依据/成本单价依据.md；各项默认价与假设在成本面板逐项列示。结垢算法不使用模拟补值。</p>'};
+renderBasis=function(){el('pBasis').innerHTML='<h3>模拟依据与边界</h3><p>'+publicNote+' 流程止于纯水箱T-301。</p><p>水力：RO.design()；Q=11.4 m³/h，配置回收率与滑块同步，内部回流闭合。压力由膜通量、渗透压与流道压降迭代；泵轴功率=Q·ΔP·0.027778/η。</p><p>水质：EC/TDS/硬度/SiO₂取同一稳态离子模型流股（含回流、软化及调pH）；原水默认25℃、EC约833 µS/cm。原水情景与客户报告经页面明示的假设补全后，进入同一稳态模型；原始缺项不补入结垢筛查。余氯、浊度、SDI仍为教学假设。电阻率=1/EC。未计水箱储存污染/吸收CO₂，不能用作生产认证。</p>'+publicEDI()+'<h4>公开来源（本地存档，离线文本）</h4><ul>'+Object.keys(PUBLIC_BASIS.sources).map(k=>'<li>['+k+'] '+PUBLIC_BASIS.sources[k]+'</li>').join('')+'</ul><p>成本：资料_公开依据/成本单价依据.md；各项默认价与假设在成本面板逐项列示。结垢算法不使用模拟补值。</p>'};
 sourceBadge=()=>'<small class="simBadge">'+SIM.note+'</small>';
 function simEquipment(k){const s=SIM.get(),u=s.units[k];if(!u)return '<p>药剂配制/独立支路须按现场设定；主线模拟见关联单元。</p>';return '<p>'+SIM.note+(u.linked?'；辅助设备水质引用 '+u.linked+'，未设独立去除率':'')+'</p><table class="publicTable">'+[
  [u.linked&&u.kw===undefined?'关联主线流量':'流量',simValue('units.'+k+'.Q',u.Q,'m³/h',3)],[u.linked&&u.kw===undefined?'关联主线压力':'压力（出口）',simValue('units.'+k+'.P',u.P,'bar',3)]
@@ -3957,7 +4047,7 @@ opsValues=()=>SIM.signals();
 opsTick=function(dt){OPS.elapsed+=dt;OPS.model=D;OPS.stage=OPS.kind==='shock'?Math.min(5,Math.floor(OPS.elapsed/4)):0;OPS.values=SIM.signals();OPS.values.dose=OPS.kind==='dose'?0:100;OPS.affected=new Set(OPS.kind==='normal'?[]:OPS.kind==='cip'?['T-401','P-401','F-401','RO-101','RO-201']:['P-201','RO-101','P-202','RO-201']);el('opsStatus').textContent=SIM.note+' · '+OPS_NAMES[OPS.kind]+'；趋势采样同一稳态模拟快照。故障为阀路/配色演示，压力水质不另叠加经验幅度；不作操作依据。';opsPanel.querySelectorAll('[data-fault]').forEach(b=>b.classList.toggle('active',b.dataset.fault===OPS.kind));el('opsMeters').innerHTML=['p1','raw','ec1','rho','flow','dose'].map(id=>'<button data-signal="'+id+'"><span>'+SIGNALS[id][0]+'</span><b>'+FN(OPS.values[id],SIGNALS[id][2])+'</b><small>'+SIGNALS[id][1]+' · '+SIM.note+'</small></button>').join('');publicNumbers();const t=(performance.now()-OPS.epoch)/1000;Object.keys(SIGNALS).forEach(id=>{const h=OPS.history[id]||(OPS.history[id]=[]);h.push({t:t,v:OPS.values[id],event:OPS.kind});if(h.length>120)h.shift()});OPS.windows.forEach(drawTrend);opsVisual()};
 renderCompare=function(){const s=SIM.get();compareDialog.innerHTML='<div class="roundHead"><h2>方案模拟对比</h2><button id="compareClose">关闭 ×</button></div><p>'+SIM.note+'；同产水目标、同假设原水。单级无回流，两级方案止于纯水箱。</p><table class="publicTable"><tr><th>指标</th><th>单级RO</th><th>两级RO+EDI</th></tr>'+[
  '产水 m³/h','原水 m³/h','回收率 %','EC µS/cm','电阻率 MΩ·cm','一级压力 bar','电耗 kWh/m³'
- ].map((a,i)=>'<tr><th>'+a+'</th><td>'+simValue('compare.single.'+i,s.compare.single[i],'',5)+'</td><td>'+simValue('compare.current.'+i,s.compare.current[i],'',5)+'</td></tr>').join('')+'</table><p>单级水质沿用同原水/同一级去除率；水力独立选膜。费用口径详见当前方案成本计算器。</p>';el('compareClose').onclick=()=>compareDialog.close()};
+ ].map((a,i)=>'<tr><th>'+a+'</th><td>'+simValue('compare.single.'+i,s.compare.single[i],'',5)+'</td><td>'+simValue('compare.current.'+i,s.compare.current[i],'',5)+'</td></tr>').join('')+'</table><p>单级水质与水力按同原水独立逐元件求解；原水TDS&gt;10000 mg/L时单级回收率封顶65%（模拟设计假设，避免高回收下通量迭代不稳定，不是生产上限）。费用口径详见当前方案成本计算器。</p>';el('compareClose').onclick=()=>compareDialog.close()};
 let productFlushActive=false;const sourceStep=applyStep;applyStep=function(st){sourceStep(st);productFlushActive=st.flow.indexOf('CIP.flushDrain')>=0;if(window.publicScalingReady)refreshWaterQuality()};
 const oldPipeStream=pipeStream;pipeStream=function(p){if(/^R1\.is/.test(p.id))return D.feed1;if(/^R2\.is/.test(p.id))return D.feed2;if(/^R1\.p[0-9]+$/.test(p.id))return D.r1.perm;if(/^R2\.p[0-9]+$/.test(p.id))return D.r2.perm;if(p.id==='CIP.makeup'||(productFlushActive&&['CIP.suc','CIP.dis','CIP.s','LP2','HPD2'].indexOf(p.id)>=0))return D.r1.perm;if(/^ED\.ci/.test(p.id))return D.r2.perm;if(/^ED\.e/.test(p.id))return D.edi.rej;return oldPipeStream(p)};
 function simPipeKey(p){const st=pipeStream(p);const pairs=[[D.raw,'raw'],[D.s1,'mmf'],[D.s2,'acf'],[D.s3,'sof'],[D.s4,'cf'],[D.feed1,'feed1'],[D.r1.perm,'perm1'],[D.mid,'mid'],[D.feed2,'feed2'],[D.r2.perm,'perm2'],[D.edi.prod,'ediProd'],[D.r1.conc,'conc1'],[D.r2.conc,'conc2'],[D.edi.rej,'ediRej']];const a=pairs.find(a=>a[0]===st);return a?a[1]:null}
@@ -3966,7 +4056,7 @@ const oldQuality=refreshWaterQuality;refreshWaterQuality=function(){oldQuality()
 const publicStyle=document.createElement('style');publicStyle.textContent='.publicTable{width:100%;font-size:12px;border-collapse:collapse}.publicTable th,.publicTable td{border-bottom:1px solid var(--bd);padding:7px 4px;text-align:left;vertical-align:top}.publicTable th{width:32%;font-weight:500}.publicSource,.simBadge{font-size:9px;color:var(--mu)}.simBadge{display:inline-block}#caseNotice{height:56px;min-height:56px;max-height:56px;overflow:auto;box-sizing:border-box}#caseNotice b,#caseNotice span{display:block}#keyFigures>div{min-width:150px;padding:0 15px}#keyFigures b{font-size:24px}#sourceLabel{font-size:10px}.publicAlert{border-left:3px solid #6bbac7;padding:8px}';document.head.append(publicStyle);
 el('sourceLabel').textContent=SIM.note;el('waterLegend').querySelector('small').textContent=SIM.note;
 const oldRebuildPublic=rebuild;rebuild=function(){oldRebuildPublic();D.public=RO.publicDesign(PUB.key,INP.rec1);PUB.decision=D.public;publicStatus()};
-INP.waterCase='tap';INP.productionRec1=0;D.public=PUB.decision;publicStatus();renderEq();renderCalc();renderBasis();renderOp();_lastStation=-2;dropLive(true);refreshWaterQuality();opsTick(0);resize();overview();window.publicScalingReady=true;
+INP.waterCase='default';INP.productionRec1=0;D.public=PUB.decision;publicStatus();renderEq();renderCalc();renderBasis();renderOp();_lastStation=-2;dropLive(true);refreshWaterQuality();opsTick(0);resize();overview();window.publicScalingReady=true;
 
 /* 独立纯函数；不使用旧经验模型、情景补值或任何客户/校核样本。
  * D1 = 本地45-D01504 Rev20 §2.4，pp35–54（公开依据清单§4）。
@@ -4069,17 +4159,18 @@ INP.waterCase='tap';INP.productionRec1=0;D.public=PUB.decision;publicStatus();re
 
 /* 客户报告与结垢预览：只在输入、拖动、情景切换/重建时运算；不改渲染循环。 */
 const WQ={source:'scenario',raw:{},Y:.75,shmp:false,scan:null,current:null,materials:[],bases:new Map(),wrap:null,paint:0};
-const wqLabel={Ca:'Ca 钙',Mg:'Mg 镁',Na:'Na 钠',K:'K 钾',HCO3:'HCO₃ / 碱度',SO4:'SO₄ 硫酸根',Cl:'Cl 氯离子',SiO2:'SiO₂ 二氧化硅',Ba:'Ba 钡',Sr:'Sr 锶',T:'最低年水温',pH:'pH'};
+const wqInputKeys=WQCalc.keys.concat(['NO3']); // UI扩展；不改WQCalc的结垢算法/输入集合。
+const wqLabel={NO3:'NO₃ 硝酸根（模拟离子项）',Ca:'Ca 钙',Mg:'Mg 镁',Na:'Na 钠',K:'K 钾',HCO3:'HCO₃ / 碱度',SO4:'SO₄ 硫酸根',Cl:'Cl 氯离子',SiO2:'SiO₂ 二氧化硅',Ba:'Ba 钡',Sr:'Sr 锶',T:'最低年水温',pH:'pH'};
 const wqButton=document.createElement('button');wqButton.id='waterReportOpen';wqButton.textContent='客户水质报告';wqButton.onclick=()=>{switchTab('pCalc');el('waterReport').scrollIntoView({block:'start'})};
 el('bTheme').before(wqButton);
 const wqOldCalc=renderCalc;
 function wqFormat(v,n){return v===null||v===undefined?'需补测':v===-Infinity?'不适用（Ca=0）':Number(v).toFixed(n===undefined?2:n)}
 function wqWater(){return WQ.source==='customer'?WQ.raw:publicWater()}
-function wqMarkup(){return '<section id="waterReport"><h3>客户水质报告 · 一级RO结垢筛查</h3><p class="wqWarning">网页内简化估算，正式设计以 WAVE / PHREEQC 复核为准</p><div class="row"><label>判断数据 <select id="wqSource"><option value="scenario">当前公开原水情景</option><option value="customer">客户输入报告</option></select></label><button id="wqClear">清空客户表</button></div><p id="wqOrigin" class="note"></p><div class="wqPreview"><div class="row"><label for="wqRecovery">一级RO回收率</label><b id="wqPercent"></b><button id="wqFocus">查看一级RO</button></div><input id="wqRecovery" aria-label="一级RO回收率预览" type="range" min="0" max="90" step="0.1"><p id="wqJudgment" role="status" aria-live="polite"></p><b id="wqMaximum"></b><p id="wqFirst"></p><small>同时联动假设原水模拟与成本；结垢筛查仍只用报告/公开情景，不授权生产。蓝灰→棕红为风险示意色，不代表实测沉积量。</small></div><div class="wqFields">'+WQCalc.keys.map(k=>'<label class="wqField" for="wq_'+k+'"><span>'+wqLabel[k]+'</span>'+(k==='HCO3'?'<select id="wqAlkUnit" aria-label="碱度输入单位"><option value="HCO3">mg/L，以HCO₃计</option><option value="CaCO3">mg/L，以CaCO₃计</option></select>':'<small>'+(k==='T'?'℃（用于最低水温筛查）':k==='pH'?'无量纲':'mg/L，以所列离子/SiO₂计')+'</small>')+'<input id="wq_'+k+'" data-wq="'+k+'" type="number" step="any" min="'+(k==='pH'?'0':'0')+'"'+(k==='pH'?' max="14"':'')+' autocomplete="off" placeholder="未填写"><em id="wqErr_'+k+'">需补测</em></label>').join('')+'</div><p class="note">报告默认空白，不自动补零；低于检出限须补测或由检测方给出可用上限。碱度按HCO₃当量转换，输入本身不代表HCO₃实测。客户TDS取所填溶质质量合计近似，未列离子未计；若存在其他主要离子，应补充全分析后在专业软件复核。</p><label class="wqDose"><input type="checkbox" id="wqSHMP"> 已确认浓水SHMP为20 mg/L（仅LSI&lt;1；D1 p37）</label><p class="note">不放宽硅、硫酸盐或S&amp;DSI。其他药剂无可核对限值，不采用。SHMP有水解及磷酸钙风险，手册一般不推荐（D1 §2.3.3）。</p><div id="wqResults"></div><details><summary>公式、限值与适用边界（离线依据）</summary><div class="wqReferences"><p>[D1] DuPont 45-D01504-en Rev.20，原文位于资料_公开依据/原文/；公开依据清单§1、§4。ASTM D3739（浓水TDS 10–10000 mg/L）及D4582（&gt;10000 mg/L）使用厂家公开图解替代步骤，本页不是标准完整实现。</p><p>CF=1/(1−Y)，离子/碱度/硅浓度乘CF，假设完全截留、无沉淀、无软化/加酸、无回流增益（D1 Eq1–8、15–18、29）。I=½Σ(cᵢzᵢ²)，cᵢ=mg/L÷分子量÷1000 mol/L（D1 Eq3–5）。TDS近似为所填溶质质量合计；公开情景有报告TDS时使用报告值。</p><p>浓水pH≈原水pH+log₁₀CF（D1 §2.4.2，Cc=Cf，HCO₃主导近似）；忽略活度/碳酸根分配，误差可能较大。pCa=5−log₁₀(Ca×100.09/40.078)，pAlk=4.7−log₁₀(HCO₃×50.045/61.017)，单位mg/L以CaCO₃计（D1 Fig18–19）。pHs=pCa+pAlk+C（LSI）或K（S&amp;DSI），指数=pHc−pHs（Eq9–10、19–20）。C≈(log₁₀TDS−1)/10+34.55−13.12log₁₀(T+273.15)，为Fig18近似解析；K按Fig20逐曲线内插，约±0.1。无药剂指数&lt;0；仅低盐LSI在所选SHMP条件下&lt;1。</p><p>硅溶解度=Fig25最低温度读图值×Fig26浓水pH系数；Ω=浓水SiO₂/溶解度，限值1（D1 §2.4.7，pp51–54），约±10%读图；0–38℃、浓水pH4–10之外不外推。Fe/Al、胶体和金属硅酸盐未纳入，风险仍须专项检查。</p><p>[P1] USGS PHREEQC v3，Techniques and Methods 6-A43，SOLUTION_SPECIES p201、PHASES p127；项目已有PHREEQC的phreeqc.dat。硫酸盐用Ω≈γ²[M²⁺][SO₄²⁻]/Ksp；log₁₀γ=−4A(T)(√I/(1+√I)−0.3I)，忽略络合及水活度。A(T)为PHREEQC纯水1atm参数内插；Ksp用数据库温度式logK=A₁+A₂TK+A₃/TK+A₄log₁₀TK+A₅/TK²+A₆TK²。具体系数与数据库哈希见第四版说明本轮记录。I&gt;0.5 mol/L停止此项估算；高盐须Pitzer复核。</p><p>CaSO₄与SrSO₄筛查限值0.8，BaSO₄限值1（D1 pp44、46–47）；本页活度法与手册表观浓度积法有区别，不把活度估算冒充完整ASTM D4692。扫描0–90%，步长0.1个百分点，首个越限区间二分再向下取0.1个百分点；先遇公式域边界则综合上限需补测。该上限只针对本页五项，不能签出生产许可。</p></div></details></section>'}
+function wqMarkup(){return '<section id="waterReport"><h3>客户水质报告 · 模拟与一级RO结垢筛查</h3><p class="wqWarning">网页内简化估算，正式设计以 WAVE / PHREEQC 复核为准</p><div class="row"><label>判断数据 <select id="wqSource"><option value="scenario">当前公开原水情景</option><option value="customer">客户输入报告</option></select></label><button id="wqClear">清空客户表</button></div><p id="wqOrigin" class="note"></p><div class="wqPreview"><div class="row"><label for="wqRecovery">一级RO回收率</label><b id="wqPercent"></b><button id="wqFocus">查看一级RO</button></div><input id="wqRecovery" aria-label="一级RO回收率预览" type="range" min="0" max="90" step="0.1"><p id="wqJudgment" role="status" aria-live="polite"></p><b id="wqMaximum"></b><p id="wqFirst"></p><small>同时联动假设原水模拟与成本；结垢筛查仍只用报告/公开情景，不授权生产。蓝灰→棕红为风险示意色，不代表实测沉积量。</small></div><div class="wqFields">'+wqInputKeys.map(k=>'<label class="wqField" for="wq_'+k+'"><span>'+wqLabel[k]+'</span>'+(k==='HCO3'?'<select id="wqAlkUnit" aria-label="碱度输入单位"><option value="HCO3">mg/L，以HCO₃计</option><option value="CaCO3">mg/L，以CaCO₃计</option></select>':'<small>'+(k==='T'?'℃（用于最低水温筛查）':k==='pH'?'无量纲':'mg/L，以所列离子/SiO₂计')+'</small>')+'<input id="wq_'+k+'" data-wq="'+k+'" type="number" step="any" min="'+(k==='pH'?'0':'0')+'"'+(k==='pH'?' max="14"':'')+' autocomplete="off" placeholder="未填写"><em id="wqErr_'+k+'">需补测</em></label>').join('')+'</div><p class="note">报告原表默认空白，不自动补零；稳态模拟副本另按页面明示假设补全。NO₃供稳态离子模型使用，结垢算法原输入集合保持不变；低于检出限须补测或由检测方给出可用上限。碱度按HCO₃当量转换，输入本身不代表HCO₃实测。客户TDS取所填溶质质量合计近似，未列离子未计；若存在其他主要离子，应补充全分析后在专业软件复核。</p><label class="wqDose"><input type="checkbox" id="wqSHMP"> 已确认浓水SHMP为20 mg/L（仅LSI&lt;1；D1 p37）</label><p class="note">不放宽硅、硫酸盐或S&amp;DSI。其他药剂无可核对限值，不采用。SHMP有水解及磷酸钙风险，手册一般不推荐（D1 §2.3.3）。</p><div id="wqResults"></div><details><summary>公式、限值与适用边界（离线依据）</summary><div class="wqReferences"><p>[D1] DuPont 45-D01504-en Rev.20，原文位于资料_公开依据/原文/；公开依据清单§1、§4。ASTM D3739（浓水TDS 10–10000 mg/L）及D4582（&gt;10000 mg/L）使用厂家公开图解替代步骤，本页不是标准完整实现。</p><p>CF=1/(1−Y)，离子/碱度/硅浓度乘CF，假设完全截留、无沉淀、无软化/加酸、无回流增益（D1 Eq1–8、15–18、29）。I=½Σ(cᵢzᵢ²)，cᵢ=mg/L÷分子量÷1000 mol/L（D1 Eq3–5）。TDS近似为所填溶质质量合计；公开情景有报告TDS时使用报告值。</p><p>浓水pH≈原水pH+log₁₀CF（D1 §2.4.2，Cc=Cf，HCO₃主导近似）；忽略活度/碳酸根分配，误差可能较大。pCa=5−log₁₀(Ca×100.09/40.078)，pAlk=4.7−log₁₀(HCO₃×50.045/61.017)，单位mg/L以CaCO₃计（D1 Fig18–19）。pHs=pCa+pAlk+C（LSI）或K（S&amp;DSI），指数=pHc−pHs（Eq9–10、19–20）。C≈(log₁₀TDS−1)/10+34.55−13.12log₁₀(T+273.15)，为Fig18近似解析；K按Fig20逐曲线内插，约±0.1。无药剂指数&lt;0；仅低盐LSI在所选SHMP条件下&lt;1。</p><p>硅溶解度=Fig25最低温度读图值×Fig26浓水pH系数；Ω=浓水SiO₂/溶解度，限值1（D1 §2.4.7，pp51–54），约±10%读图；0–38℃、浓水pH4–10之外不外推。Fe/Al、胶体和金属硅酸盐未纳入，风险仍须专项检查。</p><p>[P1] USGS PHREEQC v3，Techniques and Methods 6-A43，SOLUTION_SPECIES p201、PHASES p127；项目已有PHREEQC的phreeqc.dat。硫酸盐用Ω≈γ²[M²⁺][SO₄²⁻]/Ksp；log₁₀γ=−4A(T)(√I/(1+√I)−0.3I)，忽略络合及水活度。A(T)为PHREEQC纯水1atm参数内插；Ksp用数据库温度式logK=A₁+A₂TK+A₃/TK+A₄log₁₀TK+A₅/TK²+A₆TK²。具体系数与数据库哈希见第四版说明本轮记录。I&gt;0.5 mol/L停止此项估算；高盐须Pitzer复核。</p><p>CaSO₄与SrSO₄筛查限值0.8，BaSO₄限值1（D1 pp44、46–47）；本页活度法与手册表观浓度积法有区别，不把活度估算冒充完整ASTM D4692。扫描0–90%，步长0.1个百分点，首个越限区间二分再向下取0.1个百分点；先遇公式域边界则综合上限需补测。该上限只针对本页五项，不能签出生产许可。</p></div></details></section>'}
 renderCalc=function(){wqOldCalc();const legacy=el('pCalc').innerHTML;el('pCalc').innerHTML=wqMarkup()+'<details id="wqPublicLegacy"><summary>原公开情景依据与生产校核（保持独立）</summary>'+legacy+'</details>';wqBind();wqRefresh(true);const rec=el('publicRecalc');if(rec)rec.onclick=()=>{const v=Number(el('publicRequested').value);if(!Number.isFinite(v)||v<0||v>90)return;PUB.decision=RO.publicDesign(PUB.key,v/100);D.public=PUB.decision;INP.productionRec1=PUB.decision.commandRecovery;publicStatus();renderCalc()}};
 function wqBind(){
  el('wqSource').value=WQ.source;el('wqRecovery').value=WQ.Y*100;el('wqSHMP').checked=WQ.shmp;
- WQCalc.keys.forEach(k=>{el('wq_'+k).value=WQ.raw[k]===undefined?'':k==='HCO3'&&WQ.alkUnit==='CaCO3'?WQ.raw[k]*50.045/61.017:WQ.raw[k];el('wq_'+k).oninput=()=>{wqRead();WQ.source='customer';el('wqSource').value='customer';wqRefresh(true)}});
+ wqInputKeys.forEach(k=>{el('wq_'+k).value=WQ.raw[k]===undefined?'':k==='HCO3'&&WQ.alkUnit==='CaCO3'?WQ.raw[k]*50.045/61.017:WQ.raw[k];el('wq_'+k).oninput=()=>{wqRead();WQ.source='customer';el('wqSource').value='customer';wqRefresh(true)}});
  el('wqAlkUnit').value=WQ.alkUnit||'HCO3';el('wqAlkUnit').onchange=()=>{WQ.alkUnit=el('wqAlkUnit').value;wqRead();WQ.source='customer';el('wqSource').value='customer';wqRefresh(true)};
  el('wqSource').onchange=()=>{WQ.source=el('wqSource').value;wqRefresh(true)};
  el('wqSHMP').onchange=()=>{WQ.shmp=el('wqSHMP').checked;wqRefresh(true)};
@@ -4087,7 +4178,7 @@ function wqBind(){
  el('wqClear').onclick=()=>{WQ.raw={};WQ.shmp=false;WQ.source='customer';WQ.alkUnit='HCO3';renderCalc()};
  el('wqFocus').onclick=()=>{UI.sel='RO-101';highlight();focusEq('RO-101')};
 }
-function wqRead(){const raw={};WQCalc.keys.forEach(k=>{const v=el('wq_'+k).value;if(v.trim()!=='')raw[k]=Number(v)});if(raw.HCO3!==undefined&&el('wqAlkUnit').value==='CaCO3')raw.HCO3*=61.017/50.045;WQ.raw=raw}
+function wqRead(){const raw={};wqInputKeys.forEach(k=>{const v=el('wq_'+k).value;if(v.trim()!=='')raw[k]=Number(v)});if(raw.HCO3!==undefined&&el('wqAlkUnit').value==='CaCO3')raw.HCO3*=61.017/50.045;WQ.raw=raw}
 function wqMaterials(){
  const mats=new Set(),eq=EQ['RO-101'];if(eq){
   // 一级/二级原先共用MT.wrap；隔离一份同参数副本，只改一级膜色，整个会话复用。
@@ -4106,7 +4197,7 @@ function wqRefresh(rescan){
  const r=WQ.current,s=WQ.scan,customer=WQ.source==='customer';
  el('wqOrigin').textContent=customer?'当前判断：客户报告（用户输入，未替代生产校核；采用报告最低年水温）':'当前判断：'+publicWater().name+'；保留原始缺项。客户空表独立，不自动填入情景值。';
  el('wqPercent').textContent=(WQ.Y*100).toFixed(1)+'%';
- const form=WQCalc.normalize(WQ.raw);WQCalc.keys.forEach(k=>{const missing=form.missing.indexOf(k)>=0,invalid=form.invalid.indexOf(k)>=0;const x=el('wq_'+k);x.setAttribute('aria-invalid',missing||invalid?'true':'false');el('wqErr_'+k).textContent=missing?'需补测':invalid?'数值无效':'';x.closest('label').classList.toggle('wqMissing',missing||invalid)});
+ const form=WQCalc.normalize(WQ.raw);wqInputKeys.forEach(k=>{const missing=k==='NO3'?WQ.raw.NO3===undefined:form.missing.indexOf(k)>=0,invalid=k==='NO3'?(WQ.raw.NO3!==undefined&&(!Number.isFinite(WQ.raw.NO3)||WQ.raw.NO3<0)):form.invalid.indexOf(k)>=0;const x=el('wq_'+k);x.setAttribute('aria-invalid',missing||invalid?'true':'false');el('wqErr_'+k).textContent=missing?(k==='NO3'?'模拟缺项假设15mg/L，非实测':'需补测'):invalid?'数值无效':'';x.closest('label').classList.toggle('wqMissing',missing||invalid)});
  el('wqMaximum').textContent='建议一级RO最高回收率：'+(s.maxRecovery===null?'需补测':s.maxRecovery===0?'无可推荐的正回收率（原水已超限）':(s.maxRecovery*100).toFixed(1)+'%（简化筛查上限）');
  el('wqFirst').textContent=s.firstAt!==null?'最先超限：'+s.first.map(k=>WQCalc.names[k]).join(' / ')+'；超限回收率约 '+(s.firstAt*100).toFixed(2)+'%'+(s.firstAt===0?'（原水已达/超限）':'')+'。'+s.reason:s.reason;
  let load=null;
@@ -4124,7 +4215,7 @@ wqMaterials();renderCalc();window.waterReportReady=true;
 /* 侧栏2D曲线：最多4Hz；只在状态变化时重绘。无新增Three对象。 */
 const ALONG={raw:Object.assign({},ALONG_MODEL.raw),metric:'EC',wave:false,result:null,selected:0,current:0,signature:'',revision:0,mode:'run',bases:new Map(),cipOriginals:new Map()};
 const alongStyle=document.createElement('style');alongStyle.textContent='#alongPanel{flex:none;border-bottom:1px solid var(--bd);background:var(--cd);padding:8px 10px;font-size:11px}#alongPanel h3{font-size:13px;margin:0 0 4px}#alongWarning{color:#e58f92;font-weight:bold}#alongTools{display:flex;align-items:center;gap:8px;margin:5px 0}#alongTools select{max-width:110px;font-size:11px}#alongChart{display:block;width:100%;height:135px}#alongReadout{line-height:1.5;min-height:34px}#alongMode{display:flex;gap:5px;margin:5px 0}#alongMode button{flex:1;padding:3px;font-size:11px}#alongMode button.on{border-color:#6dbfca;color:#6dbfca}#alongRawFields{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}#alongRawFields label{font-size:10px}#alongRawFields input{width:100%;min-width:0;box-sizing:border-box}#alongPanel details{max-height:145px;overflow:auto}#alongSources{white-space:pre-line;line-height:1.5}#alongPanel small{color:var(--mu)}.main.fold #alongPanel{display:none}@media(max-width:1000px){#alongChart{height:105px}#alongPanel{max-height:220px;overflow:auto}}';document.head.append(alongStyle);
-const alongPanel=document.createElement('section');alongPanel.id='alongPanel';alongPanel.innerHTML='<h3>沿程水质 · 对数曲线</h3><div id="alongWarning">模拟计算（假设原水），非实测</div><div id="alongMode"><button data-along-mode="run">运行</button><button data-along-mode="flush">冲洗</button><button data-along-mode="cip">CIP</button></div><small id="alongModeNote"></small><div id="alongTools"><select id="alongMetric" aria-label="沿程指标">'+Object.keys(ALONG_MODEL.metrics).map(k=>'<option value="'+k+'">'+ALONG_MODEL.metrics[k][0]+'</option>').join('')+'</select><label><input id="alongWave" type="checkbox"> 教学指标波动 ±2%</label><small>固定种子，每秒采样</small></div><canvas id="alongChart" width="860" height="270" aria-label="模拟沿程水质对数曲线"></canvas><div id="alongReadout" role="status"></div><small id="alongFinal"></small><details><summary>修改教学指标 / 查看逐项来源</summary><p>EC/TDS/硬度/SiO₂采用稳态模型完整离子假设原水（25℃，默认EC约833 µS/cm），不随公开原水情景或客户报告改变。下方仅编辑余氯、浊度、SDI教学假设，不补入结垢面板。</p><div id="alongRawFields">'+['Cl2','turb','SDI'].map(k=>'<label>'+ALONG_MODEL.metrics[k].join(' ')+'<input data-along-raw="'+k+'" type="number" min="0" max="1000000" step="any" value="'+ALONG.raw[k]+'"></label>').join('')+'</div><div id="alongOrigin"></div><div id="alongDeviceValues"></div><p>EC/TDS/硬度/SiO₂均直接取稳态流股，包含回流、软化与调pH；一级RO进水及中间箱因混合回流可与上游出口不同。电阻率=1/EC（MΩ·cm）。余氯、浊度、SDI为教学假设，SDI百分比仅示意。未计水箱储存污染/吸收CO₂。0值在对数图以底边空心点表示。</p><div id="alongSources"></div></details>';
+const alongPanel=document.createElement('section');alongPanel.id='alongPanel';alongPanel.innerHTML='<h3>沿程水质 · 对数曲线</h3><div id="alongWarning">模拟计算（假设原水），非实测</div><div id="alongMode"><button data-along-mode="run">运行</button><button data-along-mode="flush">冲洗</button><button data-along-mode="cip">CIP</button></div><small id="alongModeNote"></small><div id="alongTools"><select id="alongMetric" aria-label="沿程指标">'+Object.keys(ALONG_MODEL.metrics).map(k=>'<option value="'+k+'">'+ALONG_MODEL.metrics[k][0]+'</option>').join('')+'</select><label><input id="alongWave" type="checkbox"> 教学指标波动 ±2%</label><small>固定种子，每秒采样</small></div><canvas id="alongChart" width="860" height="270" aria-label="模拟沿程水质对数曲线"></canvas><div id="alongReadout" role="status"></div><small id="alongFinal"></small><details><summary>修改教学指标 / 查看逐项来源</summary><p>EC/TDS/硬度/SiO₂由当前原水情景/客户报告经明示假设补全后进入同一稳态模型。补全明细见原水情景说明与参数面板。下方仅编辑余氯、浊度、SDI教学假设，不补入结垢面板。</p><div id="alongRawFields">'+['Cl2','turb','SDI'].map(k=>'<label>'+ALONG_MODEL.metrics[k].join(' ')+'<input data-along-raw="'+k+'" type="number" min="0" max="1000000" step="any" value="'+ALONG.raw[k]+'"></label>').join('')+'</div><div id="alongOrigin"></div><div id="alongDeviceValues"></div><p>EC/TDS/硬度/SiO₂均直接取稳态流股，包含回流、软化与调pH；一级RO进水及中间箱因混合回流可与上游出口不同。电阻率=1/EC（MΩ·cm）。余氯、浊度、SDI为教学假设，SDI百分比仅示意。未计水箱储存污染/吸收CO₂。0值在对数图以底边空心点表示。</p><div id="alongSources"></div></details>';
 el('tb').before(alongPanel);
 const alongCtx=el('alongChart').getContext('2d');
 function alongInput(){return {input:Object.assign({},ALONG.raw),used:['EC/TDS/硬度/SiO₂取稳态离子模型；余氯/浊度/SDI为教学假设']}}
@@ -4137,13 +4228,13 @@ function alongDraw(){
  const rows=ALONG.result.rows,k=ALONG.metric,ctx=alongCtx,w=860,h=270,L=88,R=20,T=15,B=55,n=rows.length;
  ALONG.current=alongPosition();ALONG.selected=UI.tab==='pDrop'?Math.min(rows.length-1,Math.ceil(ALONG.current)):Math.max(0,alongIndex(UI.sel));const values=rows.map(s=>s.out[k]),positive=values.filter(v=>v>0);let lo=Math.floor(Math.log10(Math.min.apply(null,positive.concat([1e-4])))),hi=Math.ceil(Math.log10(Math.max.apply(null,positive.concat([1]))));lo=Math.max(-12,lo);hi=Math.max(lo+1,hi);
  const x=i=>L+i*(w-L-R)/Math.max(1,n-1),y=v=>T+(hi-Math.log10(Math.max(Math.pow(10,lo),v)))/(hi-lo)*(h-T-B);
- ctx.clearRect(0,0,w,h);ctx.font='17px sans-serif';ctx.fillStyle='#9badbd';ctx.strokeStyle='#435366';ctx.lineWidth=1;
+ ctx.clearRect(0,0,w,h);ctx.font=(mobileLayout()?Math.max(17,13*860/Math.max(280,el('alongChart').clientWidth||360)):17)+'px sans-serif';ctx.fillStyle='#9badbd';ctx.strokeStyle='#435366';ctx.lineWidth=1;
  for(let e=lo;e<=hi;e++){const yy=y(Math.pow(10,e));ctx.beginPath();ctx.moveTo(L,yy);ctx.lineTo(w-R,yy);ctx.stroke();ctx.fillText('10^'+e,5,yy+5)}
  const i=ALONG.selected;ctx.fillStyle='#6bbbc522';ctx.fillRect(x(Math.max(0,i-1))-5,T,Math.max(10,x(i)-x(Math.max(0,i-1))+10),h-T-B);
  ctx.strokeStyle='#72c3cd';ctx.lineWidth=3;ctx.beginPath();values.forEach((v,j)=>{if(j===0)ctx.moveTo(x(j),y(v));else ctx.lineTo(x(j),y(v))});ctx.stroke();
- values.forEach((v,j)=>{ctx.beginPath();ctx.arc(x(j),y(v),j===i?7:4,0,Math.PI*2);ctx.fillStyle=j===i?'#e8f9ff':'#72c3cd';if(v>0)ctx.fill();else ctx.stroke();ctx.save();ctx.translate(x(j),h-30);ctx.rotate(-.35);ctx.fillStyle='#acbdcc';ctx.fillText(rows[j].short,-15,0);ctx.restore()});
+ values.forEach((v,j)=>{ctx.beginPath();ctx.arc(x(j),y(v),j===i?7:4,0,Math.PI*2);ctx.fillStyle=j===i?'#e8f9ff':'#72c3cd';if(v>0)ctx.fill();else ctx.stroke();if(mobileLayout()&&j%2&&j!==i&&j!==n-1)return;ctx.save();ctx.translate(x(j),h-30);ctx.rotate(-.35);ctx.fillStyle='#acbdcc';ctx.fillText(rows[j].short,-15,0);ctx.restore()});
  if(UI.tab==='pDrop'){const p=ALONG.current,j=Math.min(n-2,Math.floor(p)),u=p-j;ctx.beginPath();ctx.arc(x(p),y(values[j])*(1-u)+y(values[j+1])*u,9,0,Math.PI*2);ctx.fillStyle='#e397a8';ctx.fill()}
- const s=rows[i],m=ALONG_MODEL.metrics[k];el('alongReadout').textContent='模拟计算（假设原水），非实测 · '+s.name+'：进 '+alongNum(s.in[k])+' → 出 '+alongNum(s.out[k])+' '+m[1]+(['Cl2','turb','SDI'].indexOf(k)>=0?'（教学假设）':'（稳态离子模型）');el('alongFinal').textContent='模拟终水电阻率 '+ALONG.result.resistivity.toFixed(2)+' MΩ·cm（25℃，水箱储存CO₂未计）';el('alongDeviceValues').innerHTML='<b>模拟计算（假设原水），非实测 · '+s.name+'</b><table><tr><th>指标</th><th>进水</th><th>出水</th></tr>'+Object.keys(ALONG_MODEL.metrics).map(key=>'<tr><td>'+ALONG_MODEL.metrics[key].join(' ')+'</td><td>'+alongNum(s.in[key])+'</td><td>'+alongNum(s.out[key])+'</td></tr>').join('')+'</table>';el('alongChart').dataset.stage=s.id;el('alongChart').dataset.current=ALONG.current.toFixed(4);
+ const s=rows[i],m=ALONG_MODEL.metrics[k];el('alongReadout').textContent='模拟计算（假设原水），非实测 · '+s.name+'：进 '+alongNum(s.in[k])+' → 出 '+alongNum(s.out[k])+' '+m[1]+(['Cl2','turb','SDI'].indexOf(k)>=0?'（教学假设）':'（稳态离子模型）');el('alongFinal').textContent='模拟终水电阻率 '+ALONG.result.resistivity.toFixed(2)+' MΩ·cm（25℃，水箱储存CO₂未计）';el('alongDeviceValues').innerHTML='<b>模拟计算（假设原水），非实测 · '+s.name+'</b><table><tr><th>指标</th><th>进水</th><th>出水</th></tr>'+Object.keys(ALONG_MODEL.metrics).map(key=>'<tr><td>'+ALONG_MODEL.metrics[key].join(' ')+'</td><td>'+alongNum(s.in[key])+'</td><td>'+alongNum(s.out[key])+'</td></tr>').join('')+'</table>';el('alongChart').dataset.metric=k;el('alongChart').setAttribute('aria-label','模拟沿程水质对数曲线 · '+m[0]);el('alongChart').dataset.stage=s.id;el('alongChart').dataset.current=ALONG.current.toFixed(4);
 }
 function alongTick(){if(document.hidden)return;const bucket=Math.floor(performance.now()/1000),sig=JSON.stringify([WQ.raw,ALONG.raw,ALONG.wave,ALONG.wave?bucket:0,RO.props(D.edi.prod).EC]);const changed=sig!==ALONG.signature;if(changed){ALONG.signature=sig;alongRecalculate(bucket)}const view=[UI.sel,UI.tab,UI.tab==='pDrop'?DROP.t:0,ALONG.metric,ALONG.revision].join('|');if(view!==ALONG.view&&(ALONG.lastDraw===undefined||performance.now()-ALONG.lastDraw>=250)){ALONG.view=view;ALONG.lastDraw=performance.now();alongDraw()}}
 el('alongMetric').onchange=()=>{ALONG.metric=el('alongMetric').value;alongTick()};el('alongWave').onchange=()=>{ALONG.wave=el('alongWave').checked;alongTick()};
@@ -4203,11 +4294,14 @@ const productStyle=document.createElement('style');productStyle.textContent='#pr
 const productPanel=document.createElement('details');productPanel.id='productCompare';productPanel.innerHTML='<summary>纯水箱 · 产水达标对照表（默认 EW-Ⅱ）</summary><div id="productWarning">模拟计算（假设原水），非实测；最终以用水点检测为准</div><select id="productStandard" aria-label="产水对照标准">'+PRODUCT_STANDARDS.map(s=>'<option value="'+s[0]+'"'+(s[0]==='ew2'?' selected':'')+'>'+s[1]+'</option>').join('')+'</select><div id="productTableWrap"><table><thead><tr><th>指标 / 单位</th><th>模拟值</th><th>限值</th><th>是否达标</th><th>判定位置 / 出处 / 置信度</th></tr></thead><tbody id="productRows"></tbody></table></div><p id="productConclusion"></p><p id="productEDI"></p><p>更高等级需在纯水箱后加抛光，本演示不含，流程仍止于纯水箱。工艺建议属判断，非标准保证。设备出口模拟值不能代替用水点检测，未计储存污染与CO₂吸收。</p><small>限值依据：资料_公开依据/产水标准限值.md；B＝第三方转载，未与正式出版物逐字比对。未规定的项目不作通过判定，不能据此宣称整项标准达标。</small>';
 alongPanel.append(productPanel);
 function productRefresh(){
- const last=ALONG.result.rows[ALONG.result.rows.length-1].out,values={EC:last.EC,rho:1/last.EC,SiO2:last.SiO2,SiMicro:last.SiO2*1000};
- PRODUCT.rows=productLimits(PRODUCT.standard).map(r=>{const v=r.metric?values[r.metric]:null,known=typeof v==='number'&&Number.isFinite(v),ok=known&&(r.max?v<=r.limit:v>=r.limit);return Object.assign(r,{value:known?v:null,status:!known?'需实测':!ok?'不达标':r.id==='rho'&&PRODUCT.standard==='ew2'&&v<16?'达标（临界，无余量）':'达标（模拟单项）'})});
- el('productRows').innerHTML=PRODUCT.rows.map(r=>'<tr data-product="'+r.id+'"><td>'+r.name+'<br>'+r.unit+'</td><td data-value="'+(r.value===null?'':r.value)+'">'+(r.value===null?'需实测':alongNum(r.value))+'</td><td>'+(typeof r.limit==='number'?(r.max?'≤':'≥'):'')+r.limit+'</td><td>'+r.status+'</td><td>'+r.where+'<br>'+r.source+'<br>置信度：'+r.confidence+(r.note?'<br>'+r.note:'')+'</td></tr>').join('');
- el('productConclusion').textContent='仅模拟单项对照：'+PRODUCT.rows.filter(r=>r.status.indexOf('达标')===0).length+'项满足限值，'+PRODUCT.rows.filter(r=>r.status==='不达标').length+'项不达标，'+PRODUCT.rows.filter(r=>r.status==='需实测').length+'项需实测；整体标准符合性未确认。';
- el('productEDI').textContent='EDI出口模拟 '+values.rho.toFixed(2)+' MΩ·cm / '+values.EC.toFixed(5)+' μS/cm（25℃），统一取原稳态模型。依据：DuPont EDI-310 手册45-D01915 Rev2，满足Table1进水条件时≥15 MΩ·cm；手册未给产水硅、TOC、钠保证，进水条件未全部实测核实。';
+ const values=SIM.get().productValues;
+ PRODUCT.rows=SIM.assess(productLimits(PRODUCT.standard));
+ el('productRows').innerHTML=PRODUCT.rows.map(r=>'<tr data-product="'+r.id+'" data-status="'+r.status+'" data-limit="'+r.limit+'"><td>'+r.name+'<br>'+r.unit+'</td><td data-value="'+(r.value===null?'':r.value)+'">'+(r.value===null?'需实测':alongNum(r.value))+'</td><td>'+(typeof r.limit==='number'?(r.max?'≤':'≥'):'')+r.limit+'</td><td>'+r.status+'</td><td>'+r.where+'<br>'+r.source+'<br>置信度：'+r.confidence+(r.note?'<br>'+r.note:'')+'</td></tr>').join('');
+ const failed=PRODUCT.rows.filter(r=>r.status==='不达标');
+ el('productConclusion').dataset.status=failed.length?'fail':'unconfirmed';
+ el('productConclusion').textContent=(failed.length?'不达标：'+failed.map(r=>r.name+' '+alongNum(r.value)+' '+r.unit+'（限值'+(r.max?'≤':'≥')+r.limit+'）').join('；')+'。':'已计算项满足限值；整体仍需实测确认。')+'仅模拟单项对照：'+PRODUCT.rows.filter(r=>r.status.indexOf('达标')===0).length+'项满足限值，'+PRODUCT.rows.filter(r=>r.status==='不达标').length+'项不达标，'+PRODUCT.rows.filter(r=>r.status==='需实测').length+'项需实测；整体标准符合性未确认。';
+ el('productEDI').textContent='EDI出口模拟 '+values.rho.toFixed(2)+' MΩ·cm / '+values.EC.toFixed(5)+' μS/cm（25℃），统一取当前情景稳态模型；模型离子项为模拟计算，不能替代检测。依据：DuPont EDI-310 手册45-D01915 Rev2，满足Table1进水条件时≥15 MΩ·cm；手册未给产水硅、TOC、钠保证，进水条件未全部实测核实。';
+ if(window.scenarioReady)scenarioStatus();
 }
 el('productStandard').onchange=()=>{PRODUCT.standard=el('productStandard').value;productRefresh()};
 const productRecalculate=alongRecalculate;alongRecalculate=function(t){productRecalculate(t);productRefresh()};
@@ -4458,11 +4552,39 @@ function simStations(){const s=SIM.get();DROP.st.forEach(st=>{const u=s.units[st
 const simAlongRecalculate=alongRecalculate;alongRecalculate=function(t){simAlongRecalculate(t);simStations();refreshWaterQuality();simRefresh()};
 const simRebuild=rebuild;rebuild=function(){simRebuild();simStations();simRefresh()};
 const simAudienceNodes=audienceNodes;audienceNodes=function(){const a=simAudienceNodes();if(AUDIENCE.route==='boss')a.splice(a.length-1,0,{id:'T-301',cost:true});return a};
-const simAudienceCaption=audienceCaption;audienceCaption=function(){simAudienceCaption();const n=audienceNodes()[AUDIENCE.index];if(PRESENT.active&&n&&n.cost){const s=SIM.get();el('audienceTitle').textContent='客户老板 · 吨水成本计算器';const text=SIM.note+'\n合计 '+s.total.toFixed(4)+' 元/m³产水\n'+Object.keys(COST_NAMES).map(k=>COST_NAMES[k]+' '+s.costs[k].toFixed(5)).join('；')+'\n假设单价的模拟估算，以实际报价和运行为准；不含人工、设备折旧、浓水排放额外费用。';el('audienceSubtitle').textContent=text;AUDIENCE.sources=[{source:'SIM.get().costs / 资料_公开依据/成本单价依据.md',text:text}]}};
+const simAudienceCaption=audienceCaption;audienceCaption=function(){simAudienceCaption();const n=audienceNodes()[AUDIENCE.index];if(PRESENT.active&&n&&n.cost){const s=SIM.get();el('audienceTitle').textContent='客户老板 · 吨水成本计算器';const text=SIM.note+'\n'+(window.scenarioReady?el('scenarioCompliance').textContent+'\n':'')+'合计 '+s.total.toFixed(4)+' 元/m³产水\n'+Object.keys(COST_NAMES).map(k=>COST_NAMES[k]+' '+s.costs[k].toFixed(5)).join('；')+'\n假设单价的模拟估算，以实际报价和运行为准；不含人工、设备折旧、浓水排放额外费用。';el('audienceSubtitle').textContent=text;AUDIENCE.sources=[{source:'SIM.get().costs / 资料_公开依据/成本单价依据.md',text:text}]}};
 const simAudienceGo=audienceGo;audienceGo=function(i){if(costDialog.open)costDialog.close();simAudienceGo(i);const n=audienceNodes()[AUDIENCE.index];if(n&&n.cost){costRefresh();if(!costDialog.open)costDialog.show()}};
 const simExitDemo=exitDemo;exitDemo=function(){if(costDialog.open)costDialog.close();simExitDemo()};
 el('demoExit').onclick=exitDemo;
 const simStyle=document.createElement('style');simStyle.textContent='#costDialog{width:min(1040px,94vw);max-height:88vh;background:var(--cd);color:var(--tx);border:1px solid #66b8c5;border-radius:12px;padding:18px 24px}.presenting #costDialog{position:fixed;inset:90px 12px 80px auto;width:min(900px,76vw);margin:0;z-index:80;box-shadow:0 10px 40px #0008}#costTotal{display:block;font-size:23px;color:var(--ac);margin:8px 0}#costResults{display:grid;grid-template-columns:1fr 1fr;gap:8px 20px}.costRow{font-size:12px;padding:6px;background:var(--bg)}.costRow>.simBadge{display:none}.costTrack{height:5px;background:#476778;margin-top:5px}.costTrack i{display:block;height:100%;background:#6bc2ce}#costFields{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:10px 0}#costFields label{display:flex;flex-direction:column;font-size:12px}#costFields small{font-size:10px;overflow-wrap:anywhere;color:var(--mu)}#costFields input{width:100%;box-sizing:border-box;background:var(--cd);color:var(--tx);border:1px solid var(--bd);padding:6px 8px;font-size:14px;font-weight:600;opacity:1}#costFields [aria-invalid=true]{outline:1px solid #dd7888}#keyFigures small span{font-size:9px}@media(max-width:1000px){#costFields,#costResults{grid-template-columns:1fr 1fr}}';document.head.append(simStyle);
 el('foot').textContent=BRAND.name+' ｜ '+SIM.note+'；模拟值，未经实测认证。';
 renderCalc();simStations();OPS.history={};opsTick(0);costRefresh();window.simulationReady=true;
+
+/* 事件提交重算；连续报告输入合并180ms，不增加帧循环任务或3D资源。 */
+let scenarioTimer=0,scenarioBusy=false,scenarioInputError='';
+let scenarioCommitted={key:SCENARIO.key,report:SCENARIO.report};
+const scenarioDetails=document.createElement('details');scenarioDetails.id='scenarioAssumptions';scenarioDetails.innerHTML='<summary>原水情景 · 假设补全明细</summary><p id="scenarioAssumptionText"></p><div id="scenarioUsedWater"></div><p id="scenarioDesignWarning"></p>';el('waterCase').after(scenarioDetails);
+const scenarioTop=document.createElement('span');scenarioTop.id='scenarioCompliance';scenarioTop.setAttribute('role','status');caseNotice.before(scenarioTop);
+function scenarioStatus(){if(scenarioInputError){scenarioTop.textContent=scenarioInputError+'；以下保留上次有效模拟，不能用作当前报告判断';scenarioTop.dataset.status='invalid';return}const s=SIM.get(),failed=SIM.assess(productLimits(PRODUCT.standard)).filter(r=>r.status==='不达标');const status=failed.length?'不达标：'+failed.map(r=>r.name+' '+alongNum(r.value)+' '+r.unit+'（限值'+(r.max?'≤':'≥')+r.limit+'）').join('；'):'已计算项满足限值，整体标准需实测确认';scenarioTop.textContent=SIM.note+' · '+PRODUCT_STANDARDS.find(a=>a[0]===PRODUCT.standard)[1]+' · '+status;scenarioTop.dataset.status=failed.length?'fail':'unconfirmed';el('scenarioAssumptionText').textContent=s.scenario.assumptions.join('；');const r=RO.props(D.raw);el('scenarioUsedWater').innerHTML='<b>用于模拟的完整组成（非实测）</b><table>'+Object.keys(s.scenario.raw.mgL).map(k=>'<tr><th>'+k+' mg/L</th><td>'+publicFormat(s.scenario.raw.mgL[k],6)+'</td></tr>').join('')+'<tr><th>HCO₃ mg/L</th><td>'+publicFormat(r.HCO3mg,6)+'</td></tr><tr><th>pH / 温度℃</th><td>'+publicFormat(r.pH,4)+' / '+publicFormat(D.raw.T,2)+'</td></tr></table>';el('scenarioDesignWarning').textContent=s.warnings.join('；')||'压力/回收率未触及模拟筛查边界；不代表生产许可。';caseNotice.textContent=SIM.note+' · '+s.scenario.name+'；'+(s.warnings.length?s.warnings.join('；')+'；':'')+s.scenario.assumptions.join('；');}
+function scenarioRecalculate(render){
+ clearTimeout(scenarioTimer);scenarioTimer=0;if(scenarioBusy)return;scenarioBusy=true;
+ try{const nextDesign=RO.design(INP);if(Math.abs(nextDesign.r1.perm.Q-nextDesign.flow.Q1perm)>1e-6||Math.abs(nextDesign.r2.perm.Q-nextDesign.flow.Q2perm)>1e-6)throw new Error('达到压力求解/稳定性边界，目标产水量不闭合；请降低回收率、修正浓度或用厂家软件重新选型');D=nextDesign;scenarioCommitted={key:SCENARIO.key,report:SCENARIO.report};scenarioInputError='';Z=RO.size(D);PUB.decision=RO.publicDesign(PUB.key,INP.rec1);D.public=PUB.decision;OPS.model=D;OPS.history={};buildStations(D,Z);buildModes(D,Z);CHK=selfCheck(D);publicStatus();ALONG.signature='';alongRecalculate(Math.floor(performance.now()/1000));ALONG.lastDraw=undefined;alongDraw();refreshWaterQuality();if(render){renderCalc();renderBasis()}renderEq();renderOp();if(compareDialog.open)renderCompare();if(typeof pidSync==='function')pidSync();simRefresh();opsTick(0);scenarioStatus();wakeRender();document.dispatchEvent(new CustomEvent('simulationchange',{detail:{key:SCENARIO.key,revision:SCENARIO.revision}}));}
+ catch(e){SCENARIO.select(scenarioCommitted.key,scenarioCommitted.report);PUB.key=scenarioCommitted.key;INP.waterCase=PUB.key;scenarioInputError='需修正输入，模拟值未更新：'+e.message;caseNotice.textContent=scenarioInputError;scenarioStatus()}
+ finally{scenarioBusy=false}
+}
+function scenarioReportSync(immediate){clearTimeout(scenarioTimer);scenarioTimer=0;const k=WQ.source==='customer'?'custom':PUB.key==='custom'?'default':PUB.key;const input=Object.assign({},WQ.raw),next=SCENARIO.resolve(k,input);if(next.invalid.length){scenarioInputError='需修正报告：'+next.invalid.join('、');scenarioStatus();return}scenarioInputError='';if(JSON.stringify(SCENARIO.current())===JSON.stringify(next))return;const commit=()=>{SCENARIO.select(k,input);PUB.key=k;INP.waterCase=k;scenarioRecalculate(false)};if(immediate)commit();else scenarioTimer=setTimeout(commit,180)}
+
+const scenarioWqRefresh=wqRefresh;wqRefresh=function(rescan){scenarioWqRefresh(rescan);if(window.scenarioReady&&!scenarioBusy&&rescan)scenarioReportSync(false)};
+el('customEdit').onclick=()=>{switchTab('pCalc');if(mobileLayout())setSheet(true);el('waterReport').scrollIntoView({block:'start'})};
+const scenarioReportOpen=el('waterReportOpen').onclick; // 原按钮继续打开同一份报告。
+el('waterReportOpen').onclick=()=>{scenarioReportOpen();if(mobileLayout())setSheet(true)};
+const scenarioRenderCalc=renderCalc;renderCalc=function(){scenarioRenderCalc();const node=el('waterReport');if(node&&!el('scenarioInReport')){const p=document.createElement('p');p.id='scenarioInReport';p.textContent='模拟计算/非实测：缺项采用明示假设补全（默认Ca70、Mg18、Na55、K5、Cl87、SO₄80、NO₃15、SiO₂10、HCO₃150 mg/L、25℃、pH7.6），并以Na/Cl补足电荷平衡；逐项采用值见上方“假设补全明细”。结垢仍仅用原报告，缺项需补测，不使用模拟补值。';node.prepend(p)}};
+// 所有回收率提交都先检验实际求解产水闭合；复用候选设计，不重复求解。
+const scenarioRecoveryApply=simApplyRecovery;
+simApplyRecovery=function(commit){const designFn=RO.design,previous=D.inp.rec1,requested=INP.rec1;clearTimeout(simRecoveryTimer);simRecoveryTimer=0;try{const candidate=designFn(INP),err=Math.max(Math.abs(candidate.r1.perm.Q-candidate.flow.Q1perm),Math.abs(candidate.r2.perm.Q-candidate.flow.Q2perm));if(err>1e-6)throw new Error('请求一级回收率'+(requested*100).toFixed(1)+'%时求解产水不闭合（偏差'+err.toFixed(6)+' m³/h），一级压力需求'+candidate.r1.Pf.toFixed(2)+' bar'+(candidate.r1.Pf>41?'，超过41 bar设计筛查边界':'')+'；请降低回收率或用厂家软件复核');let used=false;RO.design=function(input){if(input===INP&&!used){used=true;return candidate}return designFn(input)};scenarioInputError='';scenarioRecoveryApply(commit);scenarioStatus()}catch(e){INP.rec1=previous;WQ.Y=previous;const slider=el('wqRecovery');if(slider)slider.value=previous*100;wqRefresh(false);scenarioInputError=e.message;scenarioStatus()}finally{RO.design=designFn}};
+document.title='RO纯水系统 3D 演示（模拟计算）';el('brandsub').textContent='工艺三维演示（严谨版 第四版）';
+window.scenarioReady=true;publicStatus();scenarioStatus();renderCalc();
+const scenarioCSS=document.createElement('style');scenarioCSS.textContent='#scenarioCompliance{display:block;padding:5px 16px;background:var(--cd);color:var(--tx);font-size:13px;border-bottom:1px solid var(--bd);flex-shrink:0;max-height:52px;overflow:auto}#scenarioCompliance[data-status=fail],#scenarioDesignWarning{color:#b84456}#scenarioAssumptions{font-size:13px;max-width:480px;max-height:50px;overflow:auto}#scenarioAssumptions[open]{position:fixed;z-index:60;top:110px;right:12px;max-height:55vh;background:var(--cd);border:1px solid var(--bd);padding:12px;box-shadow:0 5px 22px #0004}#scenarioAssumptions p{white-space:normal;overflow-wrap:anywhere}#scenarioAssumptions summary{cursor:pointer}';document.head.append(scenarioCSS);
+
+installMobilePolish();
 </script></body></html>
