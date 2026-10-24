@@ -1538,6 +1538,7 @@ function buildMetalEnvironment(){
     const tex=new THREE.CanvasTexture(c);const sph=new THREE.Mesh(new THREE.SphereGeometry(50,32,16),new THREE.MeshBasicMaterial({map:tex,side:THREE.BackSide}));es.add(sph);
     // 离线软箱与暗面形成宽反射带；只烘焙一次，不增加主场景灯数/阴影通道。
     [[-20,25,10,30,2],[22,18,-10,20,2],[0,30,25,40,2]].forEach(a=>{const m=new THREE.Mesh(new THREE.BoxGeometry(a[3],a[4],a[3]/2),new THREE.MeshBasicMaterial({color:0xffffff}));m.position.set(a[0],a[1],a[2]);es.add(m)});
+    [[-14,9,24,1.2,17],[18,8,16,1,14],[-26,10,-8,.8,18]].forEach(a=>{const m=new THREE.Mesh(new THREE.BoxGeometry(a[3],a[4],3),new THREE.MeshBasicMaterial({color:0xffffff}));m.position.set(a[0],a[1],a[2]);m.lookAt(0,3,0);es.add(m)});
     const panel=new THREE.Mesh(new THREE.BoxGeometry(2,20,32),new THREE.MeshBasicMaterial({color:0x152437}));panel.position.set(-28,0,-8);es.add(panel);
     const pm=new THREE.PMREMGenerator(renderer);
     try{scene.environment=pm.fromScene(es,0.025).texture}catch(e){/* 低端设备退回现有三灯光照 */}
@@ -1546,7 +1547,7 @@ function buildMetalEnvironment(){
 }
 const MAT=(c,m,r,o)=>new THREE.MeshStandardMaterial(Object.assign({color:c,metalness:m,roughness:r},o||{}));
 const MT={
-  ss:MAT(0xd6dbe0,0.88,0.36),ssd:MAT(0xaeb6be,0.84,0.48),
+  ss:MAT(0xd6dbe0,0.96,0.34),ssd:MAT(0xaeb6be,0.92,0.39),
   frp:MAT(0xc9d6df,0.04,0.52),frpB:MAT(0x4a86b8,0.04,0.52),vessel:MAT(0xeff1ed,0.02,0.58),
   pe:MAT(0xe7e4d6,0.02,0.55),peB:MAT(0x2f6fb8,0.02,0.5),
   steelB:MAT(0x2a5ba3,0.35,0.55),steelG:MAT(0x59636d,0.4,0.6),steelY:MAT(0xd2a40f,0.3,0.55),
@@ -1562,13 +1563,16 @@ const MT={
   fiber:MAT(0xf5f1e6,0,0.9)
 };
 Object.keys(MT).forEach(k=>{MT[k].envMapIntensity=0.55});
+MT.ss.envMapIntensity=.78;MT.ssd.envMapIntensity=.65;
 MT.ss.userData.brushedMetal=MT.ssd.userData.brushedMetal=true;
-// 128²确定性拉丝粗糙度，所有不锈钢共用；没有外部贴图/字体，省去bump额外采样。
-function buildBrushedMetal(){const c=document.createElement('canvas');c.width=c.height=128;const x=c.getContext('2d');
- for(let y=0;y<128;y++){const v=190+((y*73+19)%47);x.fillStyle='rgb('+v+','+v+','+v+')';x.fillRect(0,y,128,1)}
- const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.anisotropy=renderer.capabilities?Math.min(2,renderer.capabilities.getMaxAnisotropy()):1;MT.ss.roughnessMap=MT.ssd.roughnessMap=t;MT.ss.needsUpdate=MT.ssd.needsUpdate=true;
- // 壳体已在首帧前克隆材质；同步补上其粗糙度纹理。
- scene.traverse(o=>{if(o.material)(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{if(m.userData.brushedMetal){m.roughnessMap=t;m.needsUpdate=true}})});
+const brushedShells=new Set();
+// 同一张256²方向性拉丝驱动粗糙度（软件光栅化省去逐片元微法线）；repeat保证近景可辨，全部页内生成。
+function buildBrushedMetal(){const c=document.createElement('canvas');c.width=c.height=256;const x=c.getContext('2d');
+ for(let y=0;y<256;y++){const v=108+((y*73+19)%123);x.fillStyle='rgb('+v+','+v+','+v+')';x.fillRect(0,y,256,1);if(y%7===0){x.fillStyle='rgba(250,250,250,.4)';x.fillRect((y*31)%93,y,100+(y%57),1)}}
+ const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(2,5);t.anisotropy=renderer.capabilities?Math.min(4,renderer.capabilities.getMaxAnisotropy()):1;
+ function finish(m){m.roughnessMap=t;m.bumpMap=null;m.needsUpdate=true}
+ finish(MT.ss);finish(MT.ssd);brushedShells.forEach(finish);
+ scene.traverse(o=>{if(o.material)(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{if(m.userData.brushedMetal)finish(m)})});
 }
 let metalFinishScheduled=false;
 function scheduleMetalFinish(){
@@ -1595,7 +1599,19 @@ function cylAxis(p1,p2,r1,mat,seg,r2){
   const m=new THREE.Mesh(g,mat);m.position.copy(p1).add(p2).multiplyScalar(0.5);m.quaternion.setFromUnitVectors(V3(0,1,0),d.normalize());return m;
 }
 function cyl(r,h,mat,seg){return new THREE.Mesh(new THREE.CylinderGeometry(r,r,h,seg||24),mat)}
-function box(w,h,d,mat,x,y,z){const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);m.position.set(x||0,y||0,z||0);return m}
+function box(w,h,d,mat,x,y,z){const rounded=Math.min(w,h,d)>=.12&&Math.max(w,h,d)>=.3;const m=new THREE.Mesh(rounded?roundedBox(w,h,d):new THREE.BoxGeometry(w,h,d),mat);if(rounded)m.userData.keep=true;m.position.set(x||0,y||0,z||0);return m}
+// 44三角形倒角盒，外包络不变；维度缓存，clearPlant/合批不会释放共享几何。
+const roundedBoxes=new Map();
+function roundedBox(w,h,d){const r=Math.min(.018,Math.min(w,h,d)*.16),key=[w,h,d].join('|');if(roundedBoxes.has(key))return roundedBoxes.get(key);
+ const half=[w/2,h/2,d/2],v=[],uv=[];
+ function point(axis,sign,other){const p=[0,0,0];p[axis]=sign*half[axis];let j=0;for(let k=0;k<3;k++)if(k!==axis)p[k]=other[j++]*(half[k]-r);return p}
+ function tri(a,b,c){const ab=V3().fromArray(b).sub(V3().fromArray(a)),ac=V3().fromArray(c).sub(V3().fromArray(a)),ctr=V3().fromArray(a).add(V3().fromArray(b)).add(V3().fromArray(c));if(ab.cross(ac).dot(ctr)<0){const t=b;b=c;c=t}v.push.apply(v,a.concat(b,c));uv.push(0,0,1,0,1,1)}
+ function quad(a,b,c,d){tri(a,b,c);tri(a,c,d)}
+ for(let k=0;k<3;k++)[-1,1].forEach(s=>quad(point(k,s,[-1,-1]),point(k,s,[1,-1]),point(k,s,[1,1]),point(k,s,[-1,1])));
+ for(let a=0;a<3;a++)for(let b=a+1;b<3;b++){const c=3-a-b;[-1,1].forEach(sa=>[-1,1].forEach(sb=>{const p=[];[-1,1].forEach(sc=>{const x=[0,0,0],y=[0,0,0];x[a]=sa*half[a];x[b]=sb*(half[b]-r);x[c]=sc*(half[c]-r);y[a]=sa*(half[a]-r);y[b]=sb*half[b];y[c]=x[c];p.push(x,y)});quad(p[0],p[1],p[3],p[2])}))}
+ [-1,1].forEach(x=>[-1,1].forEach(y=>[-1,1].forEach(z=>{const s=[x,y,z],p=[];for(let a=0;a<3;a++)p.push(half.map((h,k)=>s[k]*(h-(k===a?0:r))));tri(p[0],p[1],p[2])})));
+ const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(v,3));g.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));g.computeVertexNormals();roundedBoxes.set(key,g);return g;
+}
 function addTo(g,m,x,y,z){m.position.set(x,y,z);g.add(m);return m}
 // 沿 X 轴的圆柱
 function cylX(r,len,mat,x,y,z,seg){const m=cyl(r,len,mat,seg||20);m.rotation.z=Math.PI/2;m.position.set(x,y,z);return m}
@@ -1604,18 +1620,25 @@ function cylZ(r,len,mat,x,y,z,seg){const m=cyl(r,len,mat,seg||20);m.rotation.x=M
 function head(R,up,mat,seg,rings){const g=new THREE.SphereGeometry(R,seg||32,rings||12,0,Math.PI*2,up?0:Math.PI/2,Math.PI/2);const m=new THREE.Mesh(g,mat);m.scale.set(1,0.5,1);return m}
 const FL={15:95,20:105,25:115,32:140,40:150,50:165,65:185,80:200,100:220,125:250,150:285,200:340,250:395,300:445};
 function flangeAt(g,p,dir,dn,mat){const od=(FL[dn]||200)/1000;const m=cyl(od/2,0.022,mat||MT.ssd,20);m.userData.flange=dn;m.position.copy(p);m.quaternion.setFromUnitVectors(V3(0,1,0),dir.clone().normalize());g.add(m);return m}
-function blob(w,d,x,z,op){ // 地面接触阴影
-  const c=document.createElement('canvas');c.width=c.height=64;const x2=c.getContext('2d');const gr=x2.createRadialGradient(32,32,4,32,32,32);gr.addColorStop(0,'rgba(0,0,0,'+(op||0.55)+')');gr.addColorStop(1,'rgba(0,0,0,0)');x2.fillStyle=gr;x2.fillRect(0,0,64,64);
-  const m=new THREE.Mesh(new THREE.PlaneGeometry(w,d),new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(c),transparent:true,depthWrite:false}));m.userData.blob=true;m.rotation.x=-Math.PI/2;m.position.set(x,0.012,z);return m}
+let contactTexture=null,contactMaterial=null;
+function blob(w,d,x,z,op){
+ if(!contactTexture){const c=document.createElement('canvas');c.width=c.height=64;const ctx=c.getContext('2d'),gr=ctx.createRadialGradient(32,32,3,32,32,32);gr.addColorStop(0,'rgba(0,0,0,.56)');gr.addColorStop(.45,'rgba(0,0,0,.30)');gr.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=gr;ctx.fillRect(0,0,64,64);contactTexture=new THREE.CanvasTexture(c);contactMaterial=new THREE.MeshBasicMaterial({map:contactTexture,transparent:true,depthWrite:false})}
+ const m=new THREE.Mesh(new THREE.PlaneGeometry(w,d),contactMaterial);m.userData.blob=true;m.rotation.x=-Math.PI/2;m.position.set(x,.012,z);return m;
+}
 function textTex(txt,w,h,bg,fg,fs){const c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d');x.fillStyle=bg;x.fillRect(0,0,w,h);x.fillStyle=fg;x.font='bold '+fs+'px "Microsoft YaHei","Noto Sans CJK SC",sans-serif';x.textAlign='center';x.textBaseline='middle';x.fillText(txt,w/2,h/2);return new THREE.CanvasTexture(c)}
 
 /* ====== 全局注册表 ====== */
 const EQ={},PIPES={},VALVES={},INSTS={},LABELS=[];
 let plantGroup=null,flowDash=null;
-const DASH=(function(){const c=document.createElement('canvas');c.width=64;c.height=8;const x=c.getContext('2d');x.clearRect(0,0,64,8);x.fillStyle='rgba(255,255,255,0.95)';x.fillRect(0,0,22,8);x.fillStyle='rgba(255,255,255,0.35)';x.fillRect(22,0,8,8);const t=new THREE.CanvasTexture(c);t.wrapS=THREE.RepeatWrapping;t.wrapT=THREE.RepeatWrapping;return t})();
+const DASH=(function(){const c=document.createElement('canvas');c.width=c.height=128;const x=c.getContext('2d');x.clearRect(0,0,128,128);
+ // 方形单元的V笔画宽20.3%；周向铺满半圈，边缘延伸以免侧视变成短刻痕。
+ // 深色细边与亮色共用一次取样/同一套管，不增加透明叠层；尖端朝+u。
+ x.lineJoin='round';x.lineCap='round';x.beginPath();x.moveTo(16,-4);x.lineTo(110,64);x.lineTo(16,132);
+ x.strokeStyle='rgba(9,24,34,0.72)';x.lineWidth=32;x.stroke();x.strokeStyle='#ffffff';x.lineWidth=26;x.stroke();
+ const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;return t})();
 function portW(eq,name){eq.g.updateMatrixWorld(true);return eq.ports[name].clone().applyMatrix4(eq.g.matrixWorld)}
 const plantObjs=[];function PADD(o){plantObjs.push(o);scene.add(o)}
-function clearPlant(){plantObjs.forEach(o=>{scene.remove(o);o.traverse&&o.traverse(m=>{if(m.geometry&&!m.userData.keep)m.geometry.dispose()})});plantObjs.length=0;
+function clearPlant(){brushedShells.clear();if(typeof releasePlantAnimation==='function')releasePlantAnimation();plantObjs.forEach(o=>{scene.remove(o);o.traverse&&o.traverse(m=>{if(m.geometry&&!m.userData.keep)m.geometry.dispose()})});plantObjs.length=0;
   [EQ,PIPES,VALVES,INSTS].forEach(o=>Object.keys(o).forEach(k=>delete o[k]));LABELS.forEach(l=>l.el.remove());LABELS.length=0}
 
 /* 静态悬浮平台：预烘焙地面/背景/底晕，厚基座及一圈自发光线，无后处理或新增灯光。 */
@@ -1647,6 +1670,8 @@ function roomCanvas(kind){const c=document.createElement('canvas');c.width=c.hei
  const glow=x.createRadialGradient(490,440,40,490,440,730);glow.addColorStop(0,tech?'#3c556d':'#d4dadd');glow.addColorStop(1,tech?'#20374d':'#b5c0c6');x.fillStyle=glow;x.fillRect(0,0,1024,1024);
  for(let a=-20;a<22;a+=2)line(a,-10,a,8,tech?'rgba(84,172,202,.19)':'rgba(84,105,118,.15)',1);
  for(let a=-10;a<8;a+=2)line(-21,a,22,a,tech?'rgba(84,172,202,.19)':'rgba(84,105,118,.15)',1);
+ // 淡宽灯箱倒影完全烘焙在原地坪纹理，保持一次绘制。
+ const sheen=x.createLinearGradient(0,80,840,950);sheen.addColorStop(0,'rgba(205,229,242,0)');sheen.addColorStop(.42,'rgba(205,229,242,.035)');sheen.addColorStop(.5,'rgba(205,229,242,.075)');sheen.addColorStop(.6,'rgba(205,229,242,.025)');sheen.addColorStop(1,'rgba(205,229,242,0)');x.fillStyle=sheen;x.fillRect(0,0,1024,1024);
  // 地沟分置设备后侧/排水终点，主线及回流管廊不跨沟。
  ROOM.trenches=[[-18,8.5,-10.5],[9,10,1.35],[16.6,17.3,1.35],[-8,18,7.3]];
  // 上排沟移至平台内的后沿，排水支管同步取此坐标。
@@ -1690,7 +1715,7 @@ function constrainRoomCamera(){const q=controls.target,p=camera.position;const x
 
 /* ====== 设备建模（真实尺寸，单位 m） ====== */
 function regEq(o){EQ[o.tag]=o;return o}
-function shellMat(base,op){const m=base.clone();m.userData.base=op||1;m.transparent=false;return m}
+function shellMat(base,op){const m=base.clone();m.userData.base=op||1;m.transparent=false;if(m.userData.brushedMetal)brushedShells.add(m);return m}
 function stubPipe(g,p,dir,dn,len,pvc){ // 管口短节 + 法兰，返回端点
   const od=((pvc===false?RO.OD_SS:RO.OD_PVC)[dn]||dn)/1000;
   const d=dir.clone().normalize(),e=p.clone().add(d.clone().multiplyScalar(len));
@@ -1739,6 +1764,7 @@ function mkFilter(o){
   // 管口
   const top=stubPipe(g,V3(0,Htot-0.02,0),V3(0,1,0),o.dnTop||80,0.2);
   const botEnd=stubPipe(g,V3(0,hl+0.01,0),V3(0,-1,0),o.dnBot||80,0.13);
+  addFilterControl(g,R,Htot);
   // 人孔（前侧 +z）、视镜
   const my=hl+hd+Hs*0.45;g.add(cylAxis(V3(0,my,R-0.02),V3(0,my,R+0.1),0.2,MT.ssd,20));const mc=cyl(0.23,0.03,MT.ss,24);mc.rotation.x=Math.PI/2;mc.position.set(0,my,R+0.115);g.add(mc);
   const sy=hl+hd+Hs*0.8;g.add(cylAxis(V3(R*0.5,sy,Math.sqrt(R*R*0.75)),V3(R*0.5,sy,Math.sqrt(R*R*0.75)+0.07),0.06,MT.ss,12));
@@ -1786,12 +1812,12 @@ function mkPump(o){
   const total=Lp+0.22+Lm;
   const base=box(total+0.4,0.12,Math.max(Dm,Dp)+0.28,MT.steelB,total/2-0.0,0.06,0);g.add(base);
   const sh=[];
-  const pb=cylX(Dp/2,Lp,o.hi?MT.ss:MT.ss,Lp/2,yc,0,32);g.add(pb);
+  const pb=pumpCylinder(Dp/2,Lp,MT.ss,Lp/2,yc,0);g.add(pb);
   for(let i=0;i<d.stages+1;i++){const r=cylX(Dp/2+0.018,0.035,MT.ssd,0.06+i*(Lp-0.12)/d.stages,yc,0,32);g.add(r)}
   // 拉杆
   [[1,1],[1,-1],[-1,1],[-1,-1]].forEach(s=>g.add(cylAxis(V3(0.0,yc+s[0]*Dp*0.42,s[1]*Dp*0.42),V3(Lp,yc+s[0]*Dp*0.42,s[1]*Dp*0.42),0.008,MT.ssd,6)));
   const cp=box(0.2,Math.max(Dm,Dp)*0.9,Math.max(Dm,Dp)*0.9,MT.steelY,Lp+0.11,yc,0);g.add(cp);
-  const mMat=MT.motor.clone();const mb=cylX(Dm/2,Lm,mMat,Lp+0.22+Lm/2,yc,0,32);g.add(mb);
+  const mMat=MT.motor.clone();const mb=pumpCylinder(Dm/2,Lm,mMat,Lp+0.22+Lm/2,yc,0);g.add(mb);
   for(let i=0;i<9;i++){const f=cylX(Dm/2+0.012,0.012,MT.motor,Lp+0.3+i*(Lm-0.35)/8,yc,0,32);g.add(f)}
   const fan=cylX(Dm/2*0.92,0.1,MT.black,Lp+0.22+Lm+0.04,yc,0,32);g.add(fan);
   const tb=box(0.14,0.1,0.14,MT.motorR,Lp+0.22+Lm*0.55,yc+Dm/2+0.05,0);g.add(tb);const pl=new THREE.Mesh(new THREE.SphereGeometry(0.035,10,8),MT.red.clone());pl.position.set(Lp+0.22+Lm*0.55,yc+Dm/2+0.15,0);g.add(pl);
@@ -1951,10 +1977,6 @@ function detailFilter(e,g){
  g.add(box(.13,.025,.04,MT.ssd,0,my,R+.145));
  const sy=e.hl+R/2+(e.H-e.hl-R)*.8,sx=R*.5,sz=R*Math.sqrt(.75)+.075;
  const glass=cylZ(.047,.008,MT.black,sx,sy,sz,16);g.add(glass);detailBolts(g,V3(sx,sy,sz+.008),V3(0,0,1),.054,4,.005);
- // 顶部原有进水接管上的布水帽和多路阀头；不增加新的流程端点。
- g.add(cylAxis(V3(0,top-.035,0),V3(0,top+.025,0),R*.24,MT.ssd,12));
- [-1,1].forEach(s=>g.add(cylAxis(V3(0,top-.025,0),V3(s*R*.32,top-.055,0),.025,MT.ssd,8)));
- g.add(box(.24,.11,.21,MT.black,0,top+.06,0));g.add(cylAxis(V3(0,top+.1,0),V3(0,top+.18,0),.028,MT.ssd,10));g.add(box(.23,.018,.035,MT.motor,.06,top+.18,0));
  for(let i=0;i<4;i++){const a=i*Math.PI/2+Math.PI/4,x=Math.cos(a)*R*.72,z=Math.sin(a)*R*.72;g.add(box(.14,.016,.14,MT.steelB,x,.016,z));detailBolts(g,V3(x,.035,z),V3(0,1,0),.046,4,.007)}
 }
 function detailCartridge(e,g){
@@ -2060,10 +2082,10 @@ function buildModelDetail(item){
   if(e.type==='bf'||e.type==='ball'){g.add(box(.12,.008,.026,MT.black,.07,R*1.2+.083,.025));for(let k=0;k<5;k++)g.add(box(.008,.012,.03,MT.ssd,.03+k*.017,R*1.2+.075,-.025))}
  }else{
   const R=PIPES[e.pipe].od/2;
-  if(e.type==='PI')detailGauge(g,V3(0,R+.15,.008),.046);
+  // 主仪表现在由动画模块提供固定刻度和可动指针，避免静态贴面盖住指针。
   if(e.type==='FT'||e.type==='CE'||e.type==='AE'){
    const y=R+(e.type==='FT'?.16:.25),w=e.type==='FT'?.1:.05,z=e.type==='FT'?.052:.026;
-   g.add(box(w,.045,.004,MT.black,0,y,z));for(let i=0;i<3;i++)g.add(box(w*.18,.005,.005,MT.motor,-w*.28+i*w*.28,y,z+.003));
+   // 屏幕保留动画表盘，避免近景静态面板盖住指针。
    g.add(cylAxis(V3(.022,y+.02,0),V3(.022,y+.13,0),.005,MT.black,6));
   }
  }
@@ -2098,6 +2120,128 @@ function updateModelDetails(force){
  });
 }
 window.__modelLOD=function(){return MODEL_DETAILS.items.map(i=>({id:i.owner.tag||i.owner.id,kind:i.kind,range:i.range,created:!!i.group,visible:!!(i.group&&i.group.visible),distance:camera.position.distanceTo(i.center)}))};
+
+/* 外观动画只读：不调用求解器、不设置阀路/模式/模拟值。几何只在设备重建时生成。 */
+const ANIM={paused:false,pipes:[],pumps:[],gauges:[],valves:[],mesh:null,texture:null,data:null,width:1,reference:null};
+const FLOW_COLORS={raw:0xe0f5ff,perm:0xb6f5ff,pure:0xe0fcff,conc:0xffe1c9,drain:0xffeade,cip:0xe5d8ff,brine:0xffddff,chem:0xe0f5d3};
+let filterScreen=null;const animDialMaterials=new Map();
+function addFilterControl(g,R,top){
+ // 始终显示，整体收在原罐体外包络和顶部0.2m接管范围内；原流程接管端点不变。
+ const h=new THREE.Group();h.name='多路阀及控制头（总览常显）';
+ h.add(cylAxis(V3(-.24,top+.055,0),V3(.24,top+.055,0),.055,MT.ssd,12));
+ h.add(box(.34,.13,.28,MT.black,0,top+.065,0));h.add(box(.22,.06,.08,MT.motor,0,top+.145,.04));
+ [-1,1].forEach(s=>{h.add(cylAxis(V3(s*.19,top+.055,0),V3(s*.3,top+.055,0),.047,MT.ssd,12));h.add(cylX(.06,.018,MT.ssd,s*.29,top+.055,0,12))});
+ if(!filterScreen)filterScreen=new THREE.MeshBasicMaterial({map:textTex('AUTO',128,48,'#143342','#8fe4ec',27)});
+ const screen=new THREE.Mesh(new THREE.PlaneGeometry(.16,.053),filterScreen);screen.position.set(-.025,top+.079,.141);h.add(screen);
+ h.add(cylZ(.024,.012,MT.ssd,.113,top+.075,.147,12));g.add(h);
+}
+const bevelCylinders=new Map();
+function pumpCylinder(r,len,mat,x,y,z){const b=Math.min(.012,r*.09,len*.06),key=r+'|'+len;let g=bevelCylinders.get(key);if(!g){g=new THREE.LatheGeometry([new THREE.Vector2(0,-len/2),new THREE.Vector2(r-b,-len/2),new THREE.Vector2(r,-len/2+b),new THREE.Vector2(r,len/2-b),new THREE.Vector2(r-b,len/2),new THREE.Vector2(0,len/2)],16);bevelCylinders.set(key,g)}const m=new THREE.Mesh(g,mat);m.rotation.z=Math.PI/2;m.position.set(x,y,z);m.userData.keep=true;return m;}
+function animDial(unit,min,max){const key=unit+'|'+max;if(animDialMaterials.has(key))return animDialMaterials.get(key);
+ const c=document.createElement('canvas');c.width=c.height=256;const x=c.getContext('2d');x.fillStyle='#e9efec';x.fillRect(0,0,256,256);x.strokeStyle='#263d50';x.fillStyle='#263d50';x.textAlign='center';x.textBaseline='middle';
+ for(let i=0;i<=40;i++){const a=(225-i*6.75)*Math.PI/180,r=i%5?109:99;x.lineWidth=i%5?1:3;x.beginPath();x.moveTo(128+Math.cos(a)*r,128-Math.sin(a)*r);x.lineTo(128+Math.cos(a)*117,128-Math.sin(a)*117);x.stroke();if(i%10===0){x.font='20px sans-serif';x.fillText(String(min+(max-min)*i/40),128+Math.cos(a)*79,128-Math.sin(a)*79)}}
+ x.font='19px sans-serif';x.fillText(unit,128,180);x.font='15px sans-serif';x.fillText('SIM',128,207);
+ const m=new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(c),side:THREE.DoubleSide});animDialMaterials.set(key,m);return m;
+}
+function gaugeSignal(i){const map={'HPD.pi':'p1','HPD.pt':'p1','R1.fpt':'p1','MID.pi':'p2','MID.pt':'p2','R1.cpi':'pc1','R1.cpt':'pc1','R1.ppi':'bp1','R2.ppi':'bp2','R1.pce':'ec1','R2.pce':'ec2','ED.pce':'rho','R1.pft':'q1','R2.pft':'q2','ED.pft':'flow','RAW.fft':'qraw','REC.ft':'qrec','REC.ce':'ecRec','REC.pi':'pc2','R1.cft':'qc1'};return map[i.id]||i.id}
+function addAnimatedGauge(i){
+ const unit=i.unit;if(['bar','m³/h','µS/cm','MΩ·cm'].indexOf(unit)<0||['PI','PT','FT','CE'].indexOf(i.type)<0)return;
+ const max=unit==='bar'?60:unit==='m³/h'?100:unit==='MΩ·cm'?20:1000,min=0,R=PIPES[i.pipe].od/2;
+ const y=R+(i.type==='PI'||i.type==='PT'?.15:i.type==='FT'?.16:.25),r=i.type==='PI'?.039:i.type==='FT'?.047:.031,z=i.type==='PI'?.021:i.type==='PT'?.025:i.type==='FT'?.054:.029;
+ if(i.animNeedle){i.g.remove(i.animNeedle);i.animNeedle.geometry.dispose()}
+ const face=new THREE.Mesh(new THREE.CircleGeometry(r,24),animDial(unit,min,max));face.position.set(0,y,z);i.g.add(face);
+ const pivot=new THREE.Group();pivot.position.set(0,y,z+.0015);pivot.userData.animPart=true;
+ const needle=box(r*.76,r*.055,.0015,MT.red,r*.3,0,0);pivot.add(needle);i.g.add(pivot);
+ const a={id:i.id,quantity:gaugeSignal(i),value:0,unit,min,max,needleAngle:0,expectedAngle:0,pivot,initialized:false};ANIM.gauges.push(a);
+}
+function flowReference(p,d){const id=p.id,f=d.flow;
+ if(/^R1\.is/.test(id))return d.r1.stageSummary[0].qConc;
+ if(/^R2\.is/.test(id))return d.r2.stageSummary[0].qConc;
+ if(/^R1\.c/.test(id))return f.Q1c;
+ if(/^R1\.p/.test(id))return f.Q1perm;
+ if(/^(HP|R1\.)/.test(id))return f.Q1;
+ if(/^(REC|R2\.c)/.test(id))return f.Q2c;
+ if(/^R2\.p/.test(id))return f.Q2perm;
+ if(/^(MID|R2\.)/.test(id))return f.Q2;
+ if(/^ED\.(prod|pd)/.test(id)||/^PW/.test(id))return f.Qprod;
+ if(/^ED\.p/.test(id))return f.Qprod;
+ if(/^ED\.e/.test(id))return f.ediElec;
+ if(/^ED\.(cr|ci)/.test(id))return f.ediRet||f.ediRej;
+ if(/^ED\.c/.test(id))return f.ediRej-f.ediElec;
+ if(/^ED\./.test(id))return f.Q2perm;
+ if(/^(RAW|M\.|A\.|S\.|CF)/.test(id))return f.Qfresh;
+ return p.Q;
+}
+function batchContactShadows(){
+ // 把原接触暗部一次烘焙进两种地坪；重建先恢复底图，避免重复叠黑。
+ const shadows=[];
+ Object.keys(EQ).forEach(k=>{const e=EQ[k],parts=[];e.g.updateMatrixWorld(true);e.g.traverse(o=>{if(o.userData.blob)parts.push(o)});parts.forEach(o=>{const b=new THREE.Box3().setFromObject(o);shadows.push(b);o.parent.remove(o);o.geometry.dispose()})});
+ if(typeof ROOM==='undefined'||!ROOM.textures)return;
+ ROOM.textures.forEach(t=>{const c=t.image,x=c.getContext('2d');t.userData=t.userData||{};if(!t.userData.contactBase){const base=document.createElement('canvas');base.width=c.width;base.height=c.height;base.getContext('2d').drawImage(c,0,0);t.userData.contactBase=base}x.clearRect(0,0,c.width,c.height);x.drawImage(t.userData.contactBase,0,0);
+  shadows.forEach(b=>x.drawImage(contactTexture.image,(b.min.x+21)/43*c.width,(b.min.z+10)/18*c.height,(b.max.x-b.min.x)/43*c.width,(b.max.z-b.min.z)/18*c.height));t.needsUpdate=true;
+ });
+}
+// 周期仍为0.75m，相位/速度不变；V轴向长度约1.45×管径，细管最短0.10m。
+// 宽度沿原1.095×半径套管铺满半圈；flowSpan仅在建模时写入。
+function buildFlowBatch(){
+ const list=ANIM.pipes;let nv=0,ni=0;list.forEach(a=>{const g=a.pipe.flow.geometry,used=Array.from(new Set(g.index.array));a.used=used;nv+=used.length;ni+=g.index.count});
+ const pos=new Float32Array(nv*3),uv=new Float32Array(nv*2),slot=new Float32Array(nv),span=new Float32Array(nv),idx=new Uint32Array(ni);let v=0,j=0;
+ list.forEach((a,i)=>{const p=a.pipe,g=p.flow.geometry,n=a.used.length,remap=new Map();a.used.forEach((old,k)=>{const out=v+k;remap.set(old,out);for(let d=0;d<3;d++)pos[out*3+d]=g.attributes.position.array[old*3+d];uv[out*2]=g.attributes.uv.array[old*2]*p.len/.75;uv[out*2+1]=g.attributes.uv.array[old*2+1]*2;slot[out]=(i+.5)/ANIM.width;span[out]=Math.max(.10,p.od*1.45)/.75});for(let k=0;k<g.index.count;k++)idx[j++]=remap.get(g.index.array[k]);v+=n;delete a.used;
+  // 保留原flow对象供遮挡透明/故障着色读取，不再单独提交draw call。
+  p.flow.parent.remove(p.flow);p.flow.visible=false;
+ });
+ const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(pos,3));g.setAttribute('uv',new THREE.BufferAttribute(uv,2));g.setAttribute('flowSlot',new THREE.BufferAttribute(slot,1));g.setAttribute('flowSpan',new THREE.BufferAttribute(span,1));g.setIndex(new THREE.BufferAttribute(idx,1));g.computeBoundingSphere();
+ const m=new THREE.ShaderMaterial({uniforms:{stateMap:{value:ANIM.texture},arrows:{value:DASH}},transparent:true,depthWrite:false,side:THREE.FrontSide,toneMapped:false,
+ vertexShader:'attribute float flowSlot;attribute float flowSpan;varying float vSpan;uniform sampler2D stateMap;varying vec2 vUv;varying vec4 vTint;void main(){vec4 s=texture2D(stateMap,vec2(flowSlot,.25));vec4 tint=texture2D(stateMap,vec2(flowSlot,.75));vec3 c=tint.rgb;float phase=(s.r*255.0*256.0+s.g*255.0)/65535.0;vUv=vec2((uv.x+phase)*(tint.a>.5?1.0:-1.0),uv.y);vTint=vec4(c,s.b*s.a);vSpan=flowSpan;gl_Position=s.b<.002?vec4(2.0,2.0,2.0,1.0):projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
+ fragmentShader:'uniform sampler2D arrows;varying vec2 vUv;varying vec4 vTint;varying float vSpan;void main(){float u=(fract(vUv.x)-.5)/vSpan+.5;if(u<0.0||u>1.0)discard;vec4 ink=texture2D(arrows,vec2(u,vUv.y));float a=ink.a*vTint.a;if(a<.12)discard;gl_FragColor=vec4(ink.rgb*vTint.rgb,a);}'
+ });
+ // 高亮色直接输出，与图例一致，免去逐片元色调映射。
+ const mesh=new THREE.Mesh(g,m);mesh.name='合并管线示意箭头（单次绘制）';mesh.raycast=function(){};PADD(mesh);ANIM.mesh=mesh;
+}
+function releasePlantAnimation(){if(ANIM.texture)ANIM.texture.dispose();if(ANIM.mesh)ANIM.mesh.material.dispose();ANIM.pipes.forEach(a=>{a.pipe.flow.geometry.dispose();a.pipe.flow.material.dispose();a.pipe.dt.dispose()});ANIM.texture=null;ANIM.data=null;}
+function preparePlantAnimation(){
+ ANIM.mesh=null;ANIM.pipes.length=ANIM.pumps.length=ANIM.gauges.length=ANIM.valves.length=0;
+ const seen=new Set();Object.keys(PIPES).forEach(k=>{const p=PIPES[k];if(seen.has(p))return;seen.add(p);ANIM.pipes.push({id:p.id,pipe:p,reference:flowReference(p,D),flow:0,speed:0,offset:0,visible:false})});
+ ANIM.width=THREE.MathUtils.ceilPowerOfTwo(ANIM.pipes.length);ANIM.data=new Uint8Array(ANIM.width*8);ANIM.texture=new THREE.DataTexture(ANIM.data,ANIM.width,2,THREE.RGBAFormat);ANIM.texture.minFilter=ANIM.texture.magFilter=THREE.NearestFilter;ANIM.texture.generateMipmaps=false;ANIM.texture.needsUpdate=true;
+ Object.keys(EQ).forEach(k=>{const e=EQ[k];if(e.kind!=='pump')return;
+  const d=e.dims,y=e.ports.ctr.y,total=d.Lp+.22+d.Lm,pivot=new THREE.Group();pivot.position.set(total+.092,y,0);pivot.userData.animPart=true;
+  // 轴端三叶风扇+银色偏心标记，位于原风罩包络内，转轴沿电机x轴。
+  for(let n=0;n<3;n++){const a=n*Math.PI*2/3,b=box(.004,d.Dm*.24,d.Dm*.06,MT.ssd,0,Math.cos(a)*d.Dm*.19,Math.sin(a)*d.Dm*.19);b.rotation.x=a;pivot.add(b)}
+  e.g.add(pivot);mergeStaticParts(pivot,new Set());ANIM.pumps.push({tag:k,eq:e,pivot,running:false,angle:0});
+ });
+ Object.keys(INSTS).forEach(k=>addAnimatedGauge(INSTS[k]));Object.keys(VALVES).forEach(k=>{const v=VALVES[k];if(v.hnd){v.hnd.userData.animPart=true;ANIM.valves.push({id:k,valve:v,angle:v.hnd.rotation.y,target:v.animTarget,from:v.hnd.rotation.y,elapsed:.8})}});
+ buildFlowBatch();batchContactShadows();
+}
+function tickPlantAnimation(dt){
+ if(!window.simulationReady||!ANIM.pipes.length)return;
+ const s=SIM.get(),st=MODES[UI.mode].steps[UI.step],fault=typeof OPS!=='undefined'?OPS:null,d=fault&&fault.kind==='foul'?fault.model:s.design,values=fault&&fault.values?fault.values:SIM.signals();
+ const production=fault&&fault.kind==='cip'?Math.max(0,Math.min(1,values.flow/s.flow.Qprod)):1;
+ for(let k=0;k<ANIM.pipes.length;k++){const a=ANIM.pipes[k],p=a.pipe;let q=p.on?p.Q:0;
+  if(a.reference>0)q*=flowReference(p,d)/a.reference;
+  if(p.valves.some(id=>!VALVES[id].open))q=0;
+  if(st.k==='c2'&&(/^(CIP\.|R1\.)/.test(p.id)))q*=.5;
+  if(!/^CIP\./.test(p.id)&&p.id!=='RAW.mk')q*=production;
+  if(fault&&fault.kind==='dose'&&/^D1\./.test(p.id))q=0;
+  a.flow=Math.max(0,q);a.speed=a.flow>0?.035*Math.min(a.flow,100):0;a.visible=a.flow>1e-9;
+  if(!ANIM.paused&&a.visible){a.offset=(a.offset-p.dir*dt*a.speed)%1;p.dt.offset.x=a.offset}
+  p.flow.visible=false;
+ }
+ ANIM.pumps.forEach(a=>{a.running=!!a.eq.run&&(a.tag==='P-401'||production>0);if(!ANIM.paused&&a.running){a.angle=(a.angle+dt*7.5*(a.tag==='P-401'&&st.k==='c2'?.5:1))%(Math.PI*2);a.pivot.rotation.x=a.angle;a.pivot.updateMatrix()}});
+ ANIM.gauges.forEach(a=>{let target=values[a.quantity];if(typeof target!=='number')target=SIM.signals()[a.quantity];if(!Number.isFinite(target))target=0;
+  // 统一表盘：225°→-45°，角度只由固定量程线性映射；读数不写回模拟。
+  a.expectedAngle=225-270*Math.max(0,Math.min(1,(target-a.min)/(a.max-a.min)));
+  if(!ANIM.paused){a.value=a.initialized?a.value+(target-a.value)*(1-Math.exp(-dt*12)):target;a.needleAngle=225-270*Math.max(0,Math.min(1,(a.value-a.min)/(a.max-a.min)));a.pivot.rotation.z=a.needleAngle*Math.PI/180;a.pivot.updateMatrix();a.initialized=true}
+ });
+ ANIM.valves.forEach(a=>{const target=a.valve.animTarget;if(target!==a.target){a.target=target;a.from=a.angle;a.elapsed=0}if(!ANIM.paused){a.elapsed=Math.min(.8,a.elapsed+dt);const t=a.elapsed/.8,u=t*t*(3-2*t);a.angle=a.from+(a.target-a.from)*u;a.valve.hnd.rotation.y=a.angle;a.valve.hnd.updateMatrix()}});
+}
+function syncFlowAppearance(){
+ if(!ANIM.data)return;const data=ANIM.data,w=ANIM.width;
+ ANIM.pipes.forEach((a,i)=>{const p=a.pipe,n=Math.round(((a.offset%1+1)%1)*65535),k=i*4,c=(p.opsAffected?p.flow.material.color:null),hex=/^(REC|ED\.(cr|ci)|CIP\.)/.test(p.id)&&p.med!=='drain'?FLOW_COLORS.cip:(FLOW_COLORS[p.med]||FLOW_COLORS.raw);
+  data[k]=n>>>8;data[k+1]=n&255;data[k+2]=a.visible?255:0;data[k+3]=Math.round(255*(.65+.35*(p.fa===undefined?1:p.fa)));
+  const j=(w+i)*4;data[j]=c?Math.round(c.r*255):hex>>>16;data[j+1]=c?Math.round(c.g*255):(hex>>>8)&255;data[j+2]=c?Math.round(c.b*255):hex&255;data[j+3]=p.dir>0?255:0;
+ });ANIM.texture.needsUpdate=true;
+}
+window.__animState=function(){return {paused:ANIM.paused,pipes:ANIM.pipes.map(a=>({id:a.id,flow:a.flow,speed:a.speed,offset:a.offset,visible:a.visible})),pumps:ANIM.pumps.map(a=>({tag:a.tag,running:a.running,angle:a.angle})),gauges:ANIM.gauges.map(a=>({id:a.id,quantity:a.quantity,value:a.value,unit:a.unit,min:a.min,max:a.max,needleAngle:a.needleAngle,expectedAngle:a.expectedAngle})),valves:ANIM.valves.map(a=>({id:a.id,open:a.valve.open,angle:a.angle,target:a.target}))}};
 
 /* ====== 管道、阀门、仪表 ====== */
 function ODof(dn,ss){return ((ss?RO.OD_SS:RO.OD_PVC)[dn]||dn)/1000}
@@ -2134,7 +2278,7 @@ function addPipe(o){
   const tube=new THREE.Mesh(compactTube(new THREE.TubeGeometry(renderPath,segs,r,12,false)),mat);tube.userData.pipe=o.id;
   const dt=DASH.clone();dt.needsUpdate=true;dt.repeat.set(Math.max(1,len/0.28),1);
   const fm=new THREE.MeshBasicMaterial({map:dt,color:new THREE.Color(col).lerp(new THREE.Color(0xffffff),0.55),transparent:true,depthWrite:false,opacity:0.95});
-  const flow=new THREE.Mesh(compactTube(new THREE.TubeGeometry(renderPath,segs,r*1.09,10,false)),fm);flow.visible=false;
+  const flow=new THREE.Mesh(compactTube(new THREE.TubeGeometry(renderPath,segs,r*1.095,8,false)),fm);flow.visible=false;
   const g=new THREE.Group();g.add(tube);g.add(flow);PADD(g);
   const poly=path.getSpacedPoints(Math.max(4,Math.ceil(len/0.04)));const cum=[0];for(let i=1;i<poly.length;i++)cum.push(cum[i-1]+poly[i].distanceTo(poly[i-1]));
   const p={pts:o.pts.map(q=>q.clone()),id:o.id,med:o.med,dn:o.dn,ss:!!o.ss,Q:o.Q||0,v:o.Q?RO.velAt(o.Q,o.dn):0,len:cum[cum.length-1],poly:poly,cum:cum,tube:tube,flow:flow,dt:dt,dir:1,on:false,valves:[],insts:[],name:o.name||o.id,od:od,from:o.from||'',to:o.to||''};
@@ -2172,16 +2316,16 @@ function addValve(o){ // {id,type,pipe,at(m 或 'f0.5'),name,ss,open}
   const v={id:o.id,type:type,pipe:o.pipe,name:o.name||'',g:g,hnd:hnd,lamp:lamp,open:true,dn:dn,pos:q.p.clone().add(V3(0,nh+0.2,0)),at:s};
   v.cls=o.cls||'';VALVES[o.id]=v;pp.valves.push(o.id);setValve(o.id,o.open!==false);return v;
 }
-function setValve(id,open){const v=VALVES[id];if(!v)return;v.open=!!open;if(v.hnd)v.hnd.rotation.y=open?0:Math.PI/2;v.lamp.material=open?MT.green:MT.red}
+function setValve(id,open){const v=VALVES[id];if(!v)return;v.open=!!open;if(v.hnd){if(v.animTarget===undefined)v.hnd.rotation.y=open?0:Math.PI/2;v.animTarget=open?0:Math.PI/2;}v.lamp.material=open?MT.green:MT.red}
 /* ---- 仪表 ---- */
 function addInst(o){ // {id,type,pipe,at,name,unit,...}
   const pp=PIPES[o.pipe];const s=typeof o.at=='string'?parseFloat(o.at.slice(1))*pp.len:(o.at<0?pp.len+o.at:o.at);
-  const q=pipeAt(pp,s);const g=new THREE.Group();const od=pp.od,R=od/2,t=o.type;
+  const q=pipeAt(pp,s);const g=new THREE.Group();const od=pp.od,R=od/2,t=o.type;let animNeedle=null;
   g.position.copy(q.p);g.setRotationFromMatrix(basisFrom(q.t));
   const side=o.side||1;
   if(t=='PI'||t=='PT'){
     g.add(cylAxis(V3(0,R*0.8,0),V3(0,R+0.1,0),0.009,MT.ssd,8));
-    if(t=='PI'){const d=cyl(0.045,0.03,MT.black,20);d.rotation.x=Math.PI/2;d.position.set(0,R+0.15,0);g.add(d);const f=cyl(0.039,0.004,MT.boxW,20);f.rotation.x=Math.PI/2;f.position.set(0,R+0.15,0.017);g.add(f);const nd=box(0.003,0.034,0.002,MT.red,0.005,R+0.158,0.021);nd.rotation.z=-0.6;g.add(nd)}
+    if(t=='PI'){const d=cyl(0.045,0.03,MT.black,20);d.rotation.x=Math.PI/2;d.position.set(0,R+0.15,0);g.add(d);const f=cyl(0.039,0.004,MT.boxW,20);f.rotation.x=Math.PI/2;f.position.set(0,R+0.15,0.017);g.add(f);const nd=box(0.003,0.034,0.002,MT.red,0.005,R+0.158,0.021);nd.rotation.z=-0.6;animNeedle=nd;g.add(nd)}
     else{g.add(box(0.045,0.085,0.045,MT.ss,0,R+0.15,0));g.add(box(0.03,0.02,0.03,MT.boxW,0,R+0.21,0))}
   }else if(t=='FT'){
     const L=Math.max(0.28,od*3);g.add(cylX(R*1.35,L,MT.ssd,0,0,0,24));[-1,1].forEach(s2=>g.add(cylX((FL[pp.dn]||200)/2000,0.022,MT.ssd,s2*L/2,0,0,24)));
@@ -2196,7 +2340,7 @@ function addInst(o){ // {id,type,pipe,at,name,unit,...}
     g.add(cylX(R*1.5,0.3,MT.ssd,0,0,0,16));g.add(cylAxis(V3(0,0,0),V3(0,R+0.2,0),0.03,MT.ssd,12));
   }
   PADD(g);
-  const ins={id:o.id,type:t,name:o.name||'',unit:o.unit||'',pipe:o.pipe,pos:q.p.clone().add(V3(0,R+0.3,0)),g:g,read:o.read||null,loc:o.loc||''};INSTS[o.id]=ins;pp.insts.push(o.id);return ins;
+  const ins={id:o.id,type:t,name:o.name||'',unit:o.unit||'',pipe:o.pipe,pos:q.p.clone().add(V3(0,R+0.3,0)),g:g,animNeedle:animNeedle,read:o.read||null,loc:o.loc||''};INSTS[o.id]=ins;pp.insts.push(o.id);return ins;
 }
 /* ---- 标签 ---- */
 const labEl=$('#lab');
@@ -3474,7 +3618,7 @@ function mergeStaticParts(root,excluded){
  const parents=[];root.traverse(o=>{if(o.children.length)parents.push(o)});
  parents.forEach(parent=>{
   const batches=new Map();parent.children.forEach(o=>{
-   if(!o.isMesh||o.children.length||excluded.has(o)||Array.isArray(o.material)||o.material.transparent||!o.visible||o.userData.blob||!o.geometry.attributes.normal||!o.geometry.attributes.uv)return;
+   if(!o.isMesh||o.children.length||excluded.has(o)||Array.isArray(o.material)||o.material.transparent||!o.visible||o.userData.blob||o.userData.animPart||!o.geometry.attributes.normal||!o.geometry.attributes.uv)return;
    const key=o.material;let a=batches.get(key);if(!a){a=[];batches.set(key,a)}a.push(o);
   });
   batches.forEach(parts=>{if(parts.length<2)return;let nv=0,ni=0;
@@ -3482,16 +3626,17 @@ function mergeStaticParts(root,excluded){
    const pos=new Float32Array(nv*3),norm=new Float32Array(nv*3),uv=new Float32Array(nv*2),idx=new Uint32Array(ni);let v=0,j=0;
    parts.forEach(o=>{o.updateMatrix();const g=o.geometry.clone().applyMatrix4(o.matrix),p=g.attributes.position,n=g.attributes.normal,u=g.attributes.uv;pos.set(p.array,v*3);norm.set(n.array,v*3);uv.set(u.array,v*2);const a=g.index;for(let k=0;k<(a?a.count:p.count);k++)idx[j++]=v+(a?a.array[k]:k);v+=p.count;g.dispose()});
    const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(pos,3));g.setAttribute('normal',new THREE.BufferAttribute(norm,3));g.setAttribute('uv',new THREE.BufferAttribute(uv,2));g.setIndex(new THREE.BufferAttribute(idx,1));g.computeBoundingBox();g.computeBoundingSphere();
-   const m=new THREE.Mesh(g,parts[0].material);m.userData=Object.assign({},parts[0].userData);m.name='静态零件合批';parent.add(m);
-   parts.forEach(o=>{parent.remove(o);o.geometry.dispose()});PERF.merged+=parts.length-1;
+   const m=new THREE.Mesh(g,parts[0].material);m.userData=Object.assign({},parts[0].userData);delete m.userData.keep;m.name='静态零件合批';parent.add(m);
+   parts.forEach(o=>{parent.remove(o);if(!o.userData.keep)o.geometry.dispose()});PERF.merged+=parts.length-1;
   });
  });
 }
 function optimizePlant(){
  PERF.merged=0;
  if(typeof prepareModelDetails==='function')prepareModelDetails();
+ if(typeof preparePlantAnimation==='function')preparePlantAnimation();
  Object.keys(EQ).forEach(k=>{const e=EQ[k],skip=new Set((e.shells||[]).concat(e.inner||[]));[e.water,e.pl,e.lamp,e.motor].forEach(o=>{if(o)skip.add(o)});mergeStaticParts(e.g,skip);
-  e.g.updateMatrixWorld(true);e.g.traverse(o=>{o.updateMatrix();o.matrixAutoUpdate=false});
+  e.g.updateMatrixWorld(true);e.g.traverse(o=>{o.updateMatrix();o.matrixAutoUpdate=!!o.userData.animPart});
  });
  Object.keys(VALVES).forEach(k=>{const v=VALVES[k];mergeStaticParts(v.g,new Set([v.lamp,v.hnd]))});
  Object.keys(INSTS).forEach(k=>mergeStaticParts(INSTS[k].g,new Set()));
@@ -3499,7 +3644,7 @@ function optimizePlant(){
  // 只有阀手柄保留自动矩阵更新；随后创建的水滴Sprite/拖尾仍自动更新。
  const moving=new Set();Object.keys(VALVES).forEach(k=>{if(VALVES[k].hnd)moving.add(VALVES[k].hnd)});
  scene.updateMatrixWorld(true);scene.matrixAutoUpdate=false;
- plantObjs.forEach(root=>root.traverse(o=>{if(!moving.has(o)){o.updateMatrix();o.matrixAutoUpdate=false}}));
+ plantObjs.forEach(root=>root.traverse(o=>{if(!moving.has(o)&&!o.userData.animPart){o.updateMatrix();o.matrixAutoUpdate=false}}));
  if(ROOM.group)ROOM.group.traverse(o=>{o.updateMatrix();o.matrixAutoUpdate=false});
  wakeRender();
 }
@@ -3593,13 +3738,13 @@ const micCtx=el('micc').getContext('2d');
 let _fr=0,_lt=performance.now();const _speed=p=>0.35+0.28*Math.min(3,p.v||1);
 function loop(){PERF.raf=0;if(document.hidden)return;PERF.raf=requestAnimationFrame(loop);
   const now=performance.now(),elapsed=now-_lt;
-  const active=window.__RO_FORCE_FRAMES||now<PERF.activeUntil||DROP.playing||UI.auto||(window.V4&&V4.timer);
+  const active=window.__RO_FORCE_FRAMES||(typeof ANIM!=='undefined'&&!ANIM.paused)||now<PERF.activeUntil||DROP.playing||UI.auto||(window.V4&&V4.timer);
   if(!active&&now-PERF.lastDraw<32)return;
   if(active&&PERF.lastDraw)updateQuality(now-PERF.lastDraw);
   const dt=Math.min(0.1,elapsed/1000);_lt=now;PERF.lastDraw=now;PERF.frames++;
   controls.update();dropTick(dt);constrainRoomCamera();
-  for(let i=0;i<animatedPipes.length;i++){const p=animatedPipes[i];if(p.on)p.dt.offset.x-=p.dir*dt*_speed(p)*1.6}
-  fadePipes();if(labelsChanged())updateLabels();renderer.render(scene,camera);scheduleMetalFinish();
+  if(typeof tickPlantAnimation==='function')tickPlantAnimation(dt);
+  fadePipes();if(typeof syncFlowAppearance==='function')syncFlowAppearance();if(labelsChanged())updateLabels();renderer.render(scene,camera);scheduleMetalFinish();
   _fr++;if(UI.tab=='pDrop'&&DROP.ready&&(!MOB||(_fr&1))){dropLive();const cur=DROP.curState;const t=now/1000;
     if(cur&&cur.st>=0){const S=DROP.st[cur.st];micDraw(micCtx,S,cur,t);if(S.ro&&M3.ready)m3Render(t,{phase:cur.phase,u:cur.u})}
     else{micCtx.fillStyle='#08121c';micCtx.fillRect(0,0,720,420);for(let i=0;i<50;i++){const p=((t*0.5+rnd(i))%1);dot(micCtx,p*720,60+rnd(i+3)*300,3.5,CL.w)}txt(micCtx,'管路输送 →',20,40,16)}}}
@@ -4825,4 +4970,14 @@ window.scenarioReady=true;publicStatus();scenarioStatus();renderCalc();
 const scenarioCSS=document.createElement('style');scenarioCSS.textContent='#scenarioCompliance{display:block;padding:5px 16px;background:var(--cd);color:var(--tx);font-size:13px;border-bottom:1px solid var(--bd);flex-shrink:0;max-height:52px;overflow:auto}#scenarioCompliance[data-status=fail],#scenarioDesignWarning{color:#b84456}#scenarioAssumptions{font-size:13px;max-width:480px;max-height:50px;overflow:auto}#scenarioAssumptions[open]{position:fixed;z-index:60;top:110px;right:12px;max-height:55vh;background:var(--cd);border:1px solid var(--bd);padding:12px;box-shadow:0 5px 22px #0004}#scenarioAssumptions p{white-space:normal;overflow-wrap:anywhere}#scenarioAssumptions summary{cursor:pointer}';document.head.append(scenarioCSS);
 
 installMobilePolish();
+
+/* 所有界面已初始化后安装；按钮只暂停可视动画，不暂停模拟或水滴/导览。 */
+const animationButton=document.createElement('button');animationButton.id='animationToggle';animationButton.type='button';animationButton.textContent='动画 暂停';animationButton.setAttribute('aria-pressed','false');animationButton.title='流向、泵、阀门和仪表的示意动画';animationButton.style.minHeight='44px';
+el('v4bar').append(animationButton);const animationAnchor=document.createComment('animation control');animationButton.before(animationAnchor);
+function placeAnimationControl(){if(mobileLayout()&&el('mobileExtraBody'))el('mobileExtraBody').append(animationButton);else animationAnchor.after(animationButton)}
+window.addEventListener('resize',placeAnimationControl);placeAnimationControl();
+animationButton.onclick=function(){ANIM.paused=!ANIM.paused;animationButton.textContent=ANIM.paused?'动画 继续':'动画 暂停';animationButton.setAttribute('aria-pressed',String(ANIM.paused));_lt=performance.now();wakeRender()};
+// 替换旧方向说明，沿用原图例的flex换行；不再附加第二块长说明。
+const animationLegend=el('lg').lastElementChild;
+animationLegend.id='animationLegend';animationLegend.style.cssText='font-size:13px;line-height:1.5;color:#cfe0ee;';animationLegend.textContent='示意动画：V形箭头为当前流向 · 速度随流量';animationLegend.title='线色见本图例；CIP及回流箭头为紫色。仪表量程固定，读数以数值面板为准。';
 </script></body></html>
