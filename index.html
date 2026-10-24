@@ -1528,22 +1528,26 @@ scene.background=bgDark.clone();
 const hemi=new THREE.HemisphereLight(0xdfeeff,0x2a323c,0.5);scene.add(hemi);
 const sun=new THREE.DirectionalLight(0xffffff,0.9);sun.position.set(-14,26,16);scene.add(sun);
 const sun2=new THREE.DirectionalLight(0x9cc7ff,0.35);sun2.position.set(18,10,-12);scene.add(sun2);
-// 程序化环境贴图（金属反射用）
-(function(){
+// 首帧后才生成非必需的金属环境反射。
+function buildMetalEnvironment(){
   try{
     if(window.__RO_NO_WEBGL)return;
     const es=new THREE.Scene();
     const c=document.createElement('canvas');c.width=64;c.height=256;const x=c.getContext('2d');const g=x.createLinearGradient(0,0,0,256);
     g.addColorStop(0,'#cfe3f5');g.addColorStop(0.45,'#8aa2b8');g.addColorStop(0.5,'#445566');g.addColorStop(1,'#1d2630');x.fillStyle=g;x.fillRect(0,0,64,256);
     const tex=new THREE.CanvasTexture(c);const sph=new THREE.Mesh(new THREE.SphereGeometry(50,32,16),new THREE.MeshBasicMaterial({map:tex,side:THREE.BackSide}));es.add(sph);
+    // 离线软箱与暗面形成宽反射带；只烘焙一次，不增加主场景灯数/阴影通道。
     [[-20,25,10,30,2],[22,18,-10,20,2],[0,30,25,40,2]].forEach(a=>{const m=new THREE.Mesh(new THREE.BoxGeometry(a[3],a[4],a[3]/2),new THREE.MeshBasicMaterial({color:0xffffff}));m.position.set(a[0],a[1],a[2]);es.add(m)});
-    try{const pm=new THREE.PMREMGenerator(renderer);scene.environment=pm.fromScene(es,0.02).texture;pm.dispose()}catch(e){/* 低端设备无半精度渲染目标：退回无环境反射 */}
-  }catch(e){console.warn('env fail')}
-})();
+    const panel=new THREE.Mesh(new THREE.BoxGeometry(2,20,32),new THREE.MeshBasicMaterial({color:0x152437}));panel.position.set(-28,0,-8);es.add(panel);
+    const pm=new THREE.PMREMGenerator(renderer);
+    try{scene.environment=pm.fromScene(es,0.025).texture}catch(e){/* 低端设备退回现有三灯光照 */}
+    finally{pm.dispose();tex.dispose();es.traverse(m=>{if(m.geometry)m.geometry.dispose();if(m.material)m.material.dispose()})}
+  }catch(e){/* 程序化环境不可用时，保留现有三灯光照。 */}
+}
 const MAT=(c,m,r,o)=>new THREE.MeshStandardMaterial(Object.assign({color:c,metalness:m,roughness:r},o||{}));
 const MT={
-  ss:MAT(0xd6dbe0,0.92,0.28),ssd:MAT(0xaeb6be,0.88,0.42),
-  frp:MAT(0xc9d6df,0.12,0.38),frpB:MAT(0x4a86b8,0.1,0.35),vessel:MAT(0xe9edf0,0.1,0.28),
+  ss:MAT(0xd6dbe0,0.88,0.36),ssd:MAT(0xaeb6be,0.84,0.48),
+  frp:MAT(0xc9d6df,0.04,0.52),frpB:MAT(0x4a86b8,0.04,0.52),vessel:MAT(0xeff1ed,0.02,0.58),
   pe:MAT(0xe7e4d6,0.02,0.55),peB:MAT(0x2f6fb8,0.02,0.5),
   steelB:MAT(0x2a5ba3,0.35,0.55),steelG:MAT(0x59636d,0.4,0.6),steelY:MAT(0xd2a40f,0.3,0.55),
   motor:MAT(0x1c63c4,0.35,0.42),motorR:MAT(0x2a2f36,0.5,0.5),
@@ -1558,6 +1562,23 @@ const MT={
   fiber:MAT(0xf5f1e6,0,0.9)
 };
 Object.keys(MT).forEach(k=>{MT[k].envMapIntensity=0.55});
+MT.ss.userData.brushedMetal=MT.ssd.userData.brushedMetal=true;
+// 128²确定性拉丝粗糙度，所有不锈钢共用；没有外部贴图/字体，省去bump额外采样。
+function buildBrushedMetal(){const c=document.createElement('canvas');c.width=c.height=128;const x=c.getContext('2d');
+ for(let y=0;y<128;y++){const v=190+((y*73+19)%47);x.fillStyle='rgb('+v+','+v+','+v+')';x.fillRect(0,y,128,1)}
+ const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.anisotropy=renderer.capabilities?Math.min(2,renderer.capabilities.getMaxAnisotropy()):1;MT.ss.roughnessMap=MT.ssd.roughnessMap=t;MT.ss.needsUpdate=MT.ssd.needsUpdate=true;
+ // 壳体已在首帧前克隆材质；同步补上其粗糙度纹理。
+ scene.traverse(o=>{if(o.material)(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{if(m.userData.brushedMetal){m.roughnessMap=t;m.needsUpdate=true}})});
+}
+let metalFinishScheduled=false;
+function scheduleMetalFinish(){
+ if(metalFinishScheduled||window.__RO_NO_WEBGL)return;metalFinishScheduled=true;
+ const tasks=[buildMetalEnvironment,buildBrushedMetal];
+ function next(){const task=tasks.shift();if(!task)return;task();wakeRender();if(tasks.length)defer()}
+ function defer(){if(window.requestIdleCallback)window.requestIdleCallback(next,{timeout:2000});else setTimeout(next,100)}
+ // 从首帧提交之后的新任务排队，让页面先绘制和完成scenarioReady。
+ setTimeout(defer,0);
+}
 // 介质配色（管道/图例）
 const MEDIA={
   raw:{n:'原水 / 预处理水',c:0x2f7df6},
@@ -1580,9 +1601,9 @@ function addTo(g,m,x,y,z){m.position.set(x,y,z);g.add(m);return m}
 function cylX(r,len,mat,x,y,z,seg){const m=cyl(r,len,mat,seg||20);m.rotation.z=Math.PI/2;m.position.set(x,y,z);return m}
 function cylZ(r,len,mat,x,y,z,seg){const m=cyl(r,len,mat,seg||20);m.rotation.x=Math.PI/2;m.position.set(x,y,z);return m}
 // 椭圆封头（2:1）：上/下半
-function head(R,up,mat,seg){const g=new THREE.SphereGeometry(R,seg||32,12,0,Math.PI*2,up?0:Math.PI/2,Math.PI/2);const m=new THREE.Mesh(g,mat);m.scale.set(1,0.5,1);return m}
+function head(R,up,mat,seg,rings){const g=new THREE.SphereGeometry(R,seg||32,rings||12,0,Math.PI*2,up?0:Math.PI/2,Math.PI/2);const m=new THREE.Mesh(g,mat);m.scale.set(1,0.5,1);return m}
 const FL={15:95,20:105,25:115,32:140,40:150,50:165,65:185,80:200,100:220,125:250,150:285,200:340,250:395,300:445};
-function flangeAt(g,p,dir,dn,mat){const od=(FL[dn]||200)/1000;const m=cyl(od/2,0.022,mat||MT.ssd,20);m.position.copy(p);m.quaternion.setFromUnitVectors(V3(0,1,0),dir.clone().normalize());g.add(m);return m}
+function flangeAt(g,p,dir,dn,mat){const od=(FL[dn]||200)/1000;const m=cyl(od/2,0.022,mat||MT.ssd,20);m.userData.flange=dn;m.position.copy(p);m.quaternion.setFromUnitVectors(V3(0,1,0),dir.clone().normalize());g.add(m);return m}
 function blob(w,d,x,z,op){ // 地面接触阴影
   const c=document.createElement('canvas');c.width=c.height=64;const x2=c.getContext('2d');const gr=x2.createRadialGradient(32,32,4,32,32,32);gr.addColorStop(0,'rgba(0,0,0,'+(op||0.55)+')');gr.addColorStop(1,'rgba(0,0,0,0)');x2.fillStyle=gr;x2.fillRect(0,0,64,64);
   const m=new THREE.Mesh(new THREE.PlaneGeometry(w,d),new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(c),transparent:true,depthWrite:false}));m.userData.blob=true;m.rotation.x=-Math.PI/2;m.position.set(x,0.012,z);return m}
@@ -1681,9 +1702,11 @@ function labelAnchor(eq,x,y,z){eq.lab=V3(x,y,z)}
 function mkTank(o){
   const g=new THREE.Group();g.position.set(o.x,0,o.z);const R=o.D/2,y0=0.3,H=o.H;
   const sm=shellMat(o.mat=='pe'?MT.pe:MT.ss);const sh=[];
-  const body=cyl(R,H,sm,48);body.position.y=y0+H/2;g.add(body);sh.push(body);
-  const bot=cyl(R,0.03,sm,48);bot.position.y=y0;g.add(bot);sh.push(bot);
-  const top=cyl(R,0.03,sm,48);top.position.y=y0+H;g.add(top);sh.push(top);
+  // 封头收在原有直径/高度内，接口、标称尺寸与占地保持不变。
+  const dish=Math.min(.18,H*.12,R*.28);
+  const body=cyl(R,H-2*dish,sm,48);body.position.y=y0+H/2;g.add(body);sh.push(body);
+  const bot=head(R,false,sm,48,6);bot.scale.y=dish/R;bot.position.y=y0+dish;g.add(bot);sh.push(bot);
+  const top=head(R,true,sm,48,6);top.scale.y=dish/R;top.position.y=y0+H-dish;g.add(top);sh.push(top);
   // 焊缝/加强圈
   for(let i=1;i<Math.ceil(H/1.2);i++){const r=cyl(R+0.006,0.035,MT.ssd,48);r.position.y=y0+i*1.2;g.add(r)}
   // 支腿
@@ -1870,9 +1893,215 @@ function mkTrench(x0,x1,z,w,name){
   PADD(g);return g;
 }
 
+/* ====== 程序化机械细节：惰性近景LOD，不读写任何模拟数值 ====== */
+// 只在首次进入近景时建模；总览不创建螺栓/纹理/拉杆。重复件在各LOD组按材质合批。
+const MODEL_DETAILS={items:[],pose:new Float64Array(3),selection:undefined,tick:0,created:0};
+const DETAIL_RANGE={skid:8,edi:6,pump:3.8,tank:7,filter:5,cf:4,chem:3.5,cab:4};
+let mechanicalDial=null,mechanicalBadge=null;
+function detailRing(g,r,t,p,mat,axis){
+ const m=new THREE.Mesh(new THREE.TorusGeometry(r,t,6,28),mat||MT.ssd);
+ if(axis==='x')m.rotation.y=Math.PI/2;else if(axis!=='z')m.rotation.x=Math.PI/2;
+ m.position.copy(p);g.add(m);return m;
+}
+function detailBolts(g,p,axis,r,n,size){
+ const q=new THREE.Quaternion().setFromUnitVectors(V3(0,1,0),axis.clone().normalize());
+ for(let i=0;i<n;i++){const a=i*2*Math.PI/n,v=V3(Math.cos(a)*r,0,Math.sin(a)*r).applyQuaternion(q).add(p);
+  const b=cyl(size,size*.85,MT.ssd,6);b.position.copy(v);b.quaternion.copy(q);g.add(b);
+ }
+}
+function detailFlanges(e,g){
+ e.detailFlanges.forEach(m=>{const f=m.dn;
+  detailBolts(g,m.p,m.axis,(FL[f]||200)/2000*.78,f>=80?8:4,.007);
+ });
+}
+function detailDial(){
+ if(mechanicalDial)return mechanicalDial;
+ const c=document.createElement('canvas');c.width=c.height=128;const x=c.getContext('2d');
+ x.fillStyle='#edf2ef';x.fillRect(0,0,128,128);x.strokeStyle='#243447';x.lineWidth=3;
+ x.beginPath();x.arc(64,64,58,0,Math.PI*2);x.stroke();
+ for(let i=0;i<=40;i++){const a=(135+i*6.75)*Math.PI/180,ri=i%5?48:42;x.lineWidth=i%5?1:2;x.beginPath();x.moveTo(64+Math.cos(a)*ri,64+Math.sin(a)*ri);x.lineTo(64+Math.cos(a)*54,64+Math.sin(a)*54);x.stroke()}
+ // 无数字读数：机械纹理仅为外形示意，实际模拟值仍由原面板显示。
+ x.fillStyle='#435260';x.font='15px sans-serif';x.textAlign='center';x.fillText('bar',64,94);
+ x.strokeStyle='#c43e41';x.lineWidth=3;x.beginPath();x.moveTo(72,70);x.lineTo(42,36);x.stroke();x.fillStyle='#203246';x.beginPath();x.arc(64,64,5,0,Math.PI*2);x.fill();
+ mechanicalDial=new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(c),side:THREE.DoubleSide});return mechanicalDial;
+}
+function detailGauge(g,p,r){
+ r=r||.055;const back=cylZ(r,.032,MT.ssd,p.x,p.y,p.z,24);g.add(back);
+ const f=new THREE.Mesh(new THREE.CircleGeometry(r*.88,24),detailDial());f.position.copy(p).add(V3(0,0,.018));g.add(f);
+}
+function detailBadge(){
+ if(!mechanicalBadge){const t=textTex('RO  /  8040',256,64,'#203c56','#e5f2fa',24);mechanicalBadge=new THREE.MeshBasicMaterial({map:t})}return mechanicalBadge;
+}
+function detailTank(e,g){
+ const R=e.R,H=e.H,y=e.y0;
+ // 人孔锁紧螺栓、提手、呼吸器通风缝。
+ detailBolts(g,V3(R*.45,y+H+.139,0),V3(0,1,0),.285,8,.012);
+ g.add(box(.18,.018,.025,MT.ssd,R*.45,y+H+.16,0));
+ for(let k=0;k<4;k++)detailRing(g,.085,.004,V3(-R*.55,y+H+.38+k*.025,.1),MT.ssd);
+ const lx=R*.75,lz=(R+.07)*.66,lo=y+.3,hi=y+H-.3;
+ // 外置液位计的保护条、上下隔离旋塞与刻度板，沿用原玻璃管。
+ [-.045,.045].forEach(dx=>g.add(cylAxis(V3(lx+dx,lo,lz),V3(lx+dx,hi,lz),.009,MT.ssd,6)));
+ [lo,hi].forEach(h=>{g.add(cylAxis(V3(lx,h,lz-.09),V3(lx,h,lz+.015),.022,MT.ssd,10));g.add(box(.065,.012,.018,MT.motor,lx,h,lz+.03))});
+ for(let h=lo;h<hi;h+=.12)g.add(box(.032,.006,.012,MT.black,lx+.045,h,lz));
+ const nl=Math.max(4,Math.round(R*4));for(let i=0;i<nl;i++){const a=i/nl*Math.PI*2+.3,x=Math.cos(a)*(R-.12),z=Math.sin(a)*(R-.12);g.add(box(.16,.015,.16,MT.ssd,x,.015,z));detailBolts(g,V3(x,.027,z),V3(0,1,0),.055,4,.008)}
+}
+function detailFilter(e,g){
+ const R=e.R,top=e.H,my=e.ports.manway.y;
+ detailBolts(g,V3(0,my,R+.136),V3(0,0,1),.193,8,.012);
+ g.add(box(.13,.025,.04,MT.ssd,0,my,R+.145));
+ const sy=e.hl+R/2+(e.H-e.hl-R)*.8,sx=R*.5,sz=R*Math.sqrt(.75)+.075;
+ const glass=cylZ(.047,.008,MT.black,sx,sy,sz,16);g.add(glass);detailBolts(g,V3(sx,sy,sz+.008),V3(0,0,1),.054,4,.005);
+ // 顶部原有进水接管上的布水帽和多路阀头；不增加新的流程端点。
+ g.add(cylAxis(V3(0,top-.035,0),V3(0,top+.025,0),R*.24,MT.ssd,12));
+ [-1,1].forEach(s=>g.add(cylAxis(V3(0,top-.025,0),V3(s*R*.32,top-.055,0),.025,MT.ssd,8)));
+ g.add(box(.24,.11,.21,MT.black,0,top+.06,0));g.add(cylAxis(V3(0,top+.1,0),V3(0,top+.18,0),.028,MT.ssd,10));g.add(box(.23,.018,.035,MT.motor,.06,top+.18,0));
+ for(let i=0;i<4;i++){const a=i*Math.PI/2+Math.PI/4,x=Math.cos(a)*R*.72,z=Math.sin(a)*R*.72;g.add(box(.14,.016,.14,MT.steelB,x,.016,z));detailBolts(g,V3(x,.035,z),V3(0,1,0),.046,4,.007)}
+}
+function detailCartridge(e,g){
+ const R=e.R,y=1.6;
+ detailRing(g,R+.026,.012,V3(0,y-.02,0),MT.ssd);
+ for(let i=0;i<6;i++){const a=i*Math.PI/3,x=Math.cos(a)*(R+.04),z=Math.sin(a)*(R+.04);g.add(box(.035,.08,.025,MT.ssd,x,y,z));detailBolts(g,V3(x,y+.063,z),V3(0,1,0),0,1,.013)}
+ const h=y+R*.5;g.add(cylAxis(V3(-R*.3,h-.04,0),V3(-R*.3,h+.04,0),.009,MT.ssd,8));detailGauge(g,V3(-R*.3,h+.075,.01),.046);
+ g.add(box(.07,.012,.02,MT.motor,0,h+.1,0));g.add(box(.07,.012,.02,MT.motor,0,.37,R*.4));
+ g.add(box(.12,.018,.045,MT.ssd,0,y+R*.3,0));
+}
+function detailPump(e,g){
+ const d=e.dims,D=d.Dm,L=d.Lm,P=d.Lp,R=d.Dp/2,y=e.ports.ctr.y,xm=P+.22+L/2,total=P+.22+L;
+ // 轴向散热筋；原有环形散热圈保留轮廓。
+ for(let i=0;i<18;i++){const a=i*Math.PI/9,m=box(Math.max(.12,L-.12),.025,.018,MT.motor,xm,y+Math.cos(a)*(D/2+.006),Math.sin(a)*(D/2+.006));m.rotation.x=a;g.add(m)}
+ detailBolts(g,V3(total+.095,y,0),V3(1,0,0),D*.31,6,.007);
+ for(let i=-3;i<=3;i++){const z=i*D*.09,h=Math.sqrt(Math.max(0,D*D*.18-z*z));g.add(box(.007,h*2,.008,MT.steelG,total+.094,y,z))}
+ // 联轴器防护罩通风栅与铭牌。
+ for(let i=0;i<6;i++)g.add(box(.01,Math.max(D,d.Dp)*.6,.006,MT.black,P+.035+i*.028,y,Math.max(D,d.Dp)*.455));
+ g.add(box(.1,.04,.005,MT.ssd,xm,y+.02,D/2+.025));
+ // 公共槽钢底座的翼缘、脚座与地脚螺母。
+ const bw=Math.max(D,d.Dp)+.28;
+ [-1,1].forEach(s=>{g.add(box(total+.36,.018,.055,MT.steelB,total/2,.12,s*(bw/2-.027)));[.04,total-.04].forEach(x=>{g.add(box(.16,.018,.14,MT.steelG,x,.135,s*(bw/2-.06)));detailBolts(g,V3(x,.158,s*(bw/2-.06)),V3(0,1,0),.04,2,.01)})});
+ // 泵段拉杆端螺母，进出口密封圈；口位取原端点。
+ [-1,1].forEach(a=>[-1,1].forEach(b=>detailBolts(g,V3(-.01,y+a*d.Dp*.42,b*d.Dp*.42),V3(1,0,0),0,1,.013)));
+ detailRing(g,R*.57,.004,e.ports.suc,MT.rubber,'x');
+}
+function detailSkid(e,g){
+ const s=e.skid,X=s.X,Z=s.Zi,L=s.Lv,y=s.yv,R=s.OD/2;
+ for(let i=0;i<s.nT;i++){
+  const z=Z(i);
+  [0,L].forEach((u,j)=>{
+   // 平端板、卡环与环槽；中心产水短节沿用原件。
+   g.add(cylX(R*.94,.018,MT.ssd,X(u),y,z,24));
+   detailRing(g,R+.018,.006,V3(X(u+(j?-.045:.045)),y,z),MT.black,'x');
+   detailBolts(g,V3(X(u+(j?.014:-.014)),y,z),V3(1,0,0),R*.72,6,.006);
+  });
+  [.35,L/2,L-.35].forEach(u=>{
+   // U形抱箍跨过壳体，螺杆落在原支撑上。
+   const arc=new THREE.Mesh(new THREE.TorusGeometry(R+.014,.007,5,16,Math.PI),MT.ssd);arc.rotation.y=Math.PI/2;arc.position.set(X(u),y,z);g.add(arc);
+   [-1,1].forEach(k=>{g.add(cylAxis(V3(X(u),y-.15,z+k*(R+.014)),V3(X(u),y,z+k*(R+.014)),.007,MT.ssd,6));detailBolts(g,V3(X(u),y-.12,z+k*(R+.014)),V3(0,1,0),0,1,.011)});
+  });
+  // 两道厂家标签带与无模拟读数的壳体铭牌。
+  [.65,L-.65].forEach(u=>g.add(cylX(R+.001,.055,MT.peB,X(u),y,z,24)));
+  const label=new THREE.Mesh(new THREE.PlaneGeometry(.42,.08),detailBadge());label.position.set(X(L*.48),y+.02,z+R+.002);g.add(label);
+ }
+ // 现有高压集管在管路层生成；此处只加横梁角码/集管支撑，不复制管路。
+ [.35,L/2,L-.35].forEach(u=>[Z(0)-.4,Z(s.nT-1)+.4].forEach(z=>{g.add(box(.16,.035,.16,MT.ssd,X(u),.265,z));detailBolts(g,V3(X(u),.29,z),V3(0,1,0),.055,4,.008)}));
+}
+function detailEDI(e,g){
+ e.mods.forEach(m=>{
+  const x=m.cx,y=.855;
+  // 板框堆叠沿x轴，端板厚度与原模块0.52×0.42×1.15m一致。
+  for(let k=0;k<11;k++){
+   const xx=x-.205+k*.041;g.add(box(.003,1.08,.004,MT.steelG,xx,y,.213));g.add(box(.003,.004,.41,MT.steelG,xx,1.431,0));
+  }
+  [-1,1].forEach(a=>[-1,1].forEach(b=>{
+   const h=y+a*.47,z=b*.165;g.add(cylAxis(V3(x-.28,h,z),V3(x+.28,h,z),.009,MT.ssd,6));
+   // 六棱拉杆与端部螺母进入同一不锈钢合批；省去背面螺母。
+   g.add(cylX(.017,.018,MT.ssd,x+.283,h,z,6));
+  }));
+  g.add(box(.13,.11,.055,MT.black,x,1.32,.24));
+  // 直流正负线局部走向，端部接回本模块接线盒。
+  [-1,1].forEach(s=>{g.add(cylAxis(V3(x+s*.035,1.31,.27),V3(x+s*.035,1.12,.27),.007,s<0?MT.black:MT.motor,6));g.add(cylAxis(V3(x+s*.035,1.12,.27),V3(x+s*.17,.98,.23),.007,MT.black,6))});
+  // 小接头仅留8段密封套；毫米级螺钉在此距离不可辨，省略。
+  [m.feed,m.prod,m.conc,m.concIn].forEach(p=>{const m=cyl(.03,.012,MT.black,8);m.position.copy(p);g.add(m)});
+ });
+ const cx=e.tw/2+.9;
+ [-.25,.25].forEach(x=>g.add(box(.015,1.45,.006,MT.steelG,cx+x,.8,1.281)));
+ for(let i=0;i<9;i++)g.add(box(.25,.012,.008,MT.black,cx,.35+i*.038,1.282));
+ g.add(box(.018,.14,.035,MT.black,cx+.2,.9,1.29));
+}
+function detailChem(e,g){
+ const b=e.shells[0].geometry.boundingBox||new THREE.Box3().setFromBufferAttribute(e.shells[0].geometry.attributes.position),R=(b.max.x-b.min.x)/2,H=e.top-.1;
+ // 同现有计量泵位置的小撬、泵头隔膜盖、吸排小软管与盖口。
+ g.add(box(R*2+.54,.045,R*1.7,MT.steelB,.12,.035,0));
+ g.add(cylX(.06,.035,MT.ssd,R+.28,.42,0,16));detailBolts(g,V3(R+.303,.42,0),V3(1,0,0),.044,4,.006);
+ [0,.11].forEach(z=>g.add(cylAxis(V3(R+.23,.42,z),V3(R+.23,.6,z),.007,MT.black,6)));
+ const cap=cyl(.09,.035,MT.black,16);cap.position.set(-R*.35,H+.095,0);g.add(cap);
+ g.add(box(.09,.055,.005,MT.black,R+.22,.31,.084));
+}
+function detailCabinet(e,g){
+ const bb=e.detailBounds,W=bb.max.x-bb.min.x;
+ [-1,1].forEach(s=>{g.add(box(.014,1.82,.006,MT.steelG,s*(W/2-.07),1,.272));[.4,1.6].forEach(y=>g.add(box(.025,.07,.028,MT.ssd,s*(W/2-.07),y,.28)))});
+ g.add(box(.022,.16,.025,MT.black,W/2-.16,1.05,.285));
+ for(let i=0;i<10;i++)g.add(box(W*.45,.012,.006,MT.black,0,.25+i*.035,.276));
+}
+// 新细节严格收进升级前包围范围；不扩大设备占地，不用审计豁免或碰撞代理。
+function fitDetailBounds(g,b){
+ g.updateMatrixWorld(true);const inv=new THREE.Matrix4().copy(g.matrixWorld).invert(),bb=new THREE.Box3();
+ g.traverse(m=>{if(m.isMesh){m.geometry.computeBoundingBox();bb.union(m.geometry.boundingBox.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv,m.matrixWorld)))}});
+ const a=bb.getSize(V3()),v=b.getSize(V3());['x','y','z'].forEach(k=>{g.scale[k]=a[k]?Math.min(1,v[k]/a[k]):1;const lo=bb.min[k]*g.scale[k],hi=bb.max[k]*g.scale[k];g.position[k]=lo<b.min[k]?b.min[k]-lo:hi>b.max[k]?b.max[k]-hi:0});
+}
+function detailVisibleRaycast(ray,hits){let p=this;while(p){if(!p.visible)return;p=p.parent}THREE.Mesh.prototype.raycast.call(this,ray,hits)}
+function buildModelDetail(item){
+ const e=item.owner,g=new THREE.Group();g.name='近景机械细节';g.userData.modelDetail=true;
+ if(item.kind==='equipment'){
+  // EDI小口径接头已有密封套，省去不可辨的重复法兰螺钉。
+  if(e.kind!=='edi')detailFlanges(e,g);
+  ({tank:detailTank,filter:detailFilter,cf:detailCartridge,pump:detailPump,skid:detailSkid,edi:detailEDI,chem:detailChem,cab:detailCabinet})[e.kind](e,g);
+ }else if(item.kind==='valve'){
+  const R=ODof(e.dn,false)/2,r=(FL[e.dn]||200)/2000;
+  [-1,1].forEach(s=>detailBolts(g,V3(s*.065,0,0),V3(1,0,0),r*.78,e.dn>=80?8:4,.007));
+  if(e.type==='bf'||e.type==='ball'){g.add(box(.12,.008,.026,MT.black,.07,R*1.2+.083,.025));for(let k=0;k<5;k++)g.add(box(.008,.012,.03,MT.ssd,.03+k*.017,R*1.2+.075,-.025))}
+ }else{
+  const R=PIPES[e.pipe].od/2;
+  if(e.type==='PI')detailGauge(g,V3(0,R+.15,.008),.046);
+  if(e.type==='FT'||e.type==='CE'||e.type==='AE'){
+   const y=R+(e.type==='FT'?.16:.25),w=e.type==='FT'?.1:.05,z=e.type==='FT'?.052:.026;
+   g.add(box(w,.045,.004,MT.black,0,y,z));for(let i=0;i<3;i++)g.add(box(w*.18,.005,.005,MT.motor,-w*.28+i*w*.28,y,z+.003));
+   g.add(cylAxis(V3(.022,y+.02,0),V3(.022,y+.13,0),.005,MT.black,6));
+  }
+ }
+ e.g.add(g);if(item.kind==='equipment')fitDetailBounds(g,e.detailBounds);
+ mergeStaticParts(g,new Set());
+ g.traverse(m=>{if(m.isMesh){m.userData[item.kind==='equipment'?'eq':'pipe']=item.kind==='equipment'?e.tag:e.pipe;m.raycast=detailVisibleRaycast}m.updateMatrix();m.matrixAutoUpdate=false});g.updateMatrixWorld(true);
+ item.group=g;e.detail=g;MODEL_DETAILS.created++;
+}
+function prepareModelDetails(){
+ const items=MODEL_DETAILS.items;items.length=0;MODEL_DETAILS.created=0;MODEL_DETAILS.selection=undefined;
+ Object.keys(EQ).forEach(k=>{
+  const e=EQ[k];e.g.updateMatrixWorld(true);const inv=new THREE.Matrix4().copy(e.g.matrixWorld).invert(),bb=new THREE.Box3();
+  e.detailFlanges=[];e.g.traverse(m=>{if(m.isMesh&&!m.userData.blob){m.geometry.computeBoundingBox();bb.union(m.geometry.boundingBox.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv,m.matrixWorld)));if(m.userData.flange)e.detailFlanges.push({dn:m.userData.flange,p:m.position.clone(),axis:V3(0,1,0).applyQuaternion(m.quaternion)})}});e.detailBounds=bb;
+  // 同材质壳体合为一个可剖视Mesh，shells/userData.base/inner/water仍用原机制。
+  if(e.shells.length>1){const holder=new THREE.Group();holder.name='可剖视壳体';e.g.add(holder);e.shells.forEach(m=>holder.add(m));mergeStaticParts(holder,new Set());e.shells=holder.children.slice();e.shells.forEach(m=>m.userData.eq=k)}
+  const ctr=e.ports.ctr.clone().applyMatrix4(e.g.matrixWorld);items.push({kind:'equipment',owner:e,center:ctr,range:DETAIL_RANGE[e.kind],group:null,on:false});
+ });
+ Object.keys(VALVES).forEach(k=>{const e=VALVES[k];items.push({kind:'valve',owner:e,center:e.g.position.clone(),range:3.5,group:null,on:false})});
+ Object.keys(INSTS).forEach(k=>{const e=INSTS[k];if(['PI','FT','CE','AE'].indexOf(e.type)>=0)items.push({kind:'instrument',owner:e,center:e.g.position.clone(),range:3.5,group:null,on:false})});
+ MODEL_DETAILS.pose.fill(Infinity);
+}
+function updateModelDetails(force){
+ const md=MODEL_DETAILS,cp=camera.position,sel=UI.sel;
+ if(!force&&cp.x===md.pose[0]&&cp.y===md.pose[1]&&cp.z===md.pose[2]&&sel===md.selection&&md.tick++%6!==0)return;
+ md.pose[0]=cp.x;md.pose[1]=cp.y;md.pose[2]=cp.z;md.selection=sel;
+ md.items.forEach(item=>{
+  const e=item.owner,chosen=item.kind==='equipment'&&sel===e.tag,range=item.range*(MOB?.82:1)*(item.on?1.15:1);
+  // 选择仅保留手机邻机抑制，不绕过距离；退出阈值保留15%回滞。剖视时隐藏。
+  const on=!e.cutOn&&!(MOB&&sel&&!chosen)&&cp.distanceToSquared(item.center)<=range*range;
+  if(on&&!item.group)buildModelDetail(item);
+  if(item.group)item.group.visible=on;item.on=on;
+ });
+}
+window.__modelLOD=function(){return MODEL_DETAILS.items.map(i=>({id:i.owner.tag||i.owner.id,kind:i.kind,range:i.range,created:!!i.group,visible:!!(i.group&&i.group.visible),distance:camera.position.distanceTo(i.center)}))};
+
 /* ====== 管道、阀门、仪表 ====== */
 function ODof(dn,ss){return ((ss?RO.OD_SS:RO.OD_PVC)[dn]||dn)/1000}
-function roundedPath(pts,rb){
+function roundedPath(pts,rb,circular){
   const P=[];pts.forEach(p=>{if(!P.length||P[P.length-1].distanceTo(p)>1e-4)P.push(p.clone())});
   // 去共线点
   const Q=[P[0]];for(let i=1;i<P.length-1;i++){const a=P[i].clone().sub(Q[Q.length-1]).normalize(),b=P[i+1].clone().sub(P[i]).normalize();if(a.dot(b)<0.9999)Q.push(P[i])}Q.push(P[P.length-1]);
@@ -1880,7 +2109,12 @@ function roundedPath(pts,rb){
   for(let i=1;i<Q.length-1;i++){
     const a=Q[i-1],b=Q[i],c=Q[i+1];const l1=a.distanceTo(b),l2=b.distanceTo(c);const r=Math.min(rb,0.45*Math.min(l1,l2));
     const p1=b.clone().add(a.clone().sub(b).normalize().multiplyScalar(r)),p2=b.clone().add(c.clone().sub(b).normalize().multiplyScalar(r));
-    if(prev.distanceTo(p1)>1e-5)path.add(new THREE.LineCurve3(prev.clone(),p1));path.add(new THREE.QuadraticBezierCurve3(p1,b.clone(),p2));prev=p2;
+    if(prev.distanceTo(p1)>1e-5)path.add(new THREE.LineCurve3(prev.clone(),p1));
+    const u=p1.clone().sub(b).normalize(),v=p2.clone().sub(b).normalize();
+    if(circular&&Math.abs(u.dot(v))<1e-6){
+      const center=b.clone().addScaledVector(u,r).addScaledVector(v,r),arc=new THREE.Curve();
+      arc.getPoint=function(t,target){const a=t*Math.PI/2;return (target||V3()).copy(center).addScaledVector(v,-r*Math.cos(a)).addScaledVector(u,-r*Math.sin(a))};path.add(arc);
+    }else path.add(new THREE.QuadraticBezierCurve3(p1,b.clone(),p2));prev=p2;
   }
   path.add(new THREE.LineCurve3(prev.clone(),Q[Q.length-1].clone()));return path;
 }
@@ -1893,14 +2127,14 @@ function compactTube(g){
  g.setIndex(index);g.userData.originalTubularSegments=n;g.userData.retainedRings=keep.length;return g;
 }
 function addPipe(o){
-  const od=ODof(o.dn,o.ss),r=od/2;const path=roundedPath(o.pts,Math.max(od*1.6,0.1));
+  const od=ODof(o.dn,o.ss),r=od/2;const rb=Math.max(od*1.6,0.1),path=roundedPath(o.pts,rb),renderPath=roundedPath(o.pts,rb,true);
   const len=path.getLength();const segs=Math.max(6,Math.ceil(len*10));
   const col=MEDIA[o.med].c;
   const mat=MAT(col,o.ss?0.55:0.05,o.ss?0.35:0.5);
-  const tube=new THREE.Mesh(compactTube(new THREE.TubeGeometry(path,segs,r,12,false)),mat);tube.userData.pipe=o.id;
+  const tube=new THREE.Mesh(compactTube(new THREE.TubeGeometry(renderPath,segs,r,12,false)),mat);tube.userData.pipe=o.id;
   const dt=DASH.clone();dt.needsUpdate=true;dt.repeat.set(Math.max(1,len/0.28),1);
   const fm=new THREE.MeshBasicMaterial({map:dt,color:new THREE.Color(col).lerp(new THREE.Color(0xffffff),0.55),transparent:true,depthWrite:false,opacity:0.95});
-  const flow=new THREE.Mesh(compactTube(new THREE.TubeGeometry(path,segs,r*1.09,10,false)),fm);flow.visible=false;
+  const flow=new THREE.Mesh(compactTube(new THREE.TubeGeometry(renderPath,segs,r*1.09,10,false)),fm);flow.visible=false;
   const g=new THREE.Group();g.add(tube);g.add(flow);PADD(g);
   const poly=path.getSpacedPoints(Math.max(4,Math.ceil(len/0.04)));const cum=[0];for(let i=1;i<poly.length;i++)cum.push(cum[i-1]+poly[i].distanceTo(poly[i-1]));
   const p={pts:o.pts.map(q=>q.clone()),id:o.id,med:o.med,dn:o.dn,ss:!!o.ss,Q:o.Q||0,v:o.Q?RO.velAt(o.Q,o.dn):0,len:cum[cum.length-1],poly:poly,cum:cum,tube:tube,flow:flow,dt:dt,dir:1,on:false,valves:[],insts:[],name:o.name||o.id,od:od,from:o.from||'',to:o.to||''};
@@ -1923,13 +2157,15 @@ function addValve(o){ // {id,type,pipe,at(m 或 'f0.5'),name,ss,open}
   if(type=='bf'||type=='mot'){const b=cylX(R*1.16+0.012,hlen,bodyM,0,0,0,24);g.add(b);[-1,1].forEach(s2=>{const f=cylX((FL[dn]||200)/2000,0.02,MT.ssd,s2*hlen/2,0,0,24);g.add(f)})}
   else if(type=='ball'||type=='sol'){const b=cylX(R*1.1,hlen,bodyM,0,0,0,20);g.add(b);const sp=new THREE.Mesh(new THREE.SphereGeometry(R*1.4,16,12),bodyM);g.add(sp);}
   else if(type=='chk'){const b=cylX(R*1.35,hlen,bodyM,0,0,0,24);g.add(b);const c=new THREE.Mesh(new THREE.SphereGeometry(R*1.1,14,10),bodyM);c.position.y=R*0.7;g.add(c);[-1,1].forEach(s2=>g.add(cylX((FL[dn]||200)/2000,0.02,MT.ssd,s2*hlen/2,0,0,24)))}
-  else if(type=='glb'){const sp=new THREE.Mesh(new THREE.SphereGeometry(R*1.6,16,12),bodyM);g.add(sp);g.add(cylX(R*1.05,hlen,bodyM,0,0,0,20));}
+  else if(type=='glb'||type=='gate'){const sp=new THREE.Mesh(new THREE.SphereGeometry(R*1.6,16,12),bodyM);g.add(sp);g.add(cylX(R*1.05,hlen,bodyM,0,0,0,20));}
   const nh=R*1.2+0.07;const neck=cyl(0.018,nh,MT.ssd,10);neck.position.y=nh/2;g.add(neck);
   let hnd=null;const lamp=new THREE.Mesh(new THREE.SphereGeometry(0.035,10,8),MT.green.clone());
-  if(type=='mot'||type=='glb'||type=='sol'){
+  if(type=='mot'||type=='sol'){
     const ab=box(0.13+dn*0.0006,0.16,0.11,MT.motor,0,nh+0.08,0);g.add(ab);lamp.position.set(0,nh+0.19,0);
   }else{
-    hnd=new THREE.Group();hnd.position.y=nh;const lv=box(0.16+dn*0.0012,0.02,0.035,MT.steelY,(0.16+dn*0.0012)/2-0.02,0,0);hnd.add(lv);g.add(hnd);lamp.position.set(0,nh+0.06,0);
+    hnd=new THREE.Group();hnd.position.y=nh;
+    if(type==='glb'||type==='gate'){const wheel=new THREE.Mesh(new THREE.TorusGeometry(.08+dn*.00035,.009,6,24),MT.motor);wheel.rotation.x=Math.PI/2;wheel.position.y=.035;hnd.add(wheel);for(let i=0;i<3;i++){const a=i*Math.PI*2/3;hnd.add(cylAxis(V3(0,.035,0),V3(Math.cos(a)*(.08+dn*.00035),.035,Math.sin(a)*(.08+dn*.00035)),.006,MT.motor,6))}mergeStaticParts(hnd,new Set())}
+    else{const lv=box(0.16+dn*0.0012,0.02,0.035,MT.motor,(0.16+dn*0.0012)/2-0.02,0,0);hnd.add(lv)}g.add(hnd);lamp.position.set(0,nh+0.06,0);
   }
   g.add(lamp);
   g.position.copy(q.p);g.setRotationFromMatrix(basisFrom(q.t));PADD(g);
@@ -3253,6 +3489,7 @@ function mergeStaticParts(root,excluded){
 }
 function optimizePlant(){
  PERF.merged=0;
+ if(typeof prepareModelDetails==='function')prepareModelDetails();
  Object.keys(EQ).forEach(k=>{const e=EQ[k],skip=new Set((e.shells||[]).concat(e.inner||[]));[e.water,e.pl,e.lamp,e.motor].forEach(o=>{if(o)skip.add(o)});mergeStaticParts(e.g,skip);
   e.g.updateMatrixWorld(true);e.g.traverse(o=>{o.updateMatrix();o.matrixAutoUpdate=false});
  });
@@ -3268,6 +3505,7 @@ function optimizePlant(){
 }
 const _labelPose=new Float64Array(7),_labelCamera=new Float64Array(23);let _labelFirst=null,_labelState='',_labelWidth=0,_labelHeight=0;
 function labelsChanged(){
+ if(typeof updateModelDetails==='function')updateModelDetails();
  const w=stEl.clientWidth,h=stEl.clientHeight,key=UI.sel+'|'+UI.hoverEq+'|'+UI.showEq+'|'+UI.showInst+'|'+LABELS.length+'|'+(window.mobileReady&&mobileSelected());
  let changed=key!==_labelState||LABELS[0]!==_labelFirst||w!==_labelWidth||h!==_labelHeight;
  const p=camera.position,q=camera.quaternion;const a=_labelPose;a[0]=p.x;a[1]=p.y;a[2]=p.z;a[3]=q.x;a[4]=q.y;a[5]=q.z;a[6]=q.w;for(let i=0;i<7;i++){if(a[i]!==_labelCamera[i])changed=true;_labelCamera[i]=a[i]}
@@ -3361,7 +3599,7 @@ function loop(){PERF.raf=0;if(document.hidden)return;PERF.raf=requestAnimationFr
   const dt=Math.min(0.1,elapsed/1000);_lt=now;PERF.lastDraw=now;PERF.frames++;
   controls.update();dropTick(dt);constrainRoomCamera();
   for(let i=0;i<animatedPipes.length;i++){const p=animatedPipes[i];if(p.on)p.dt.offset.x-=p.dir*dt*_speed(p)*1.6}
-  fadePipes();if(labelsChanged())updateLabels();renderer.render(scene,camera);
+  fadePipes();if(labelsChanged())updateLabels();renderer.render(scene,camera);scheduleMetalFinish();
   _fr++;if(UI.tab=='pDrop'&&DROP.ready&&(!MOB||(_fr&1))){dropLive();const cur=DROP.curState;const t=now/1000;
     if(cur&&cur.st>=0){const S=DROP.st[cur.st];micDraw(micCtx,S,cur,t);if(S.ro&&M3.ready)m3Render(t,{phase:cur.phase,u:cur.u})}
     else{micCtx.fillStyle='#08121c';micCtx.fillRect(0,0,720,420);for(let i=0;i<50;i++){const p=((t*0.5+rnd(i))%1);dot(micCtx,p*720,60+rnd(i+3)*300,3.5,CL.w)}txt(micCtx,'管路输送 →',20,40,16)}}}
