@@ -4246,4 +4246,215 @@ const productRenderEq=renderEq;renderEq=function(){productRenderEq();if(UI.sel==
 productRefresh();window.productReady=true;
 // 原有EDI参数表也展示同一个模型数值，实际检测结果仍独立保留“无数据”。
 const productPublicEDI=publicEDI;publicEDI=function(){const v=RO.props(D.edi.prod);return productPublicEDI().replace('</table>','<tr><th>模拟出口电阻率 / 电导率（25℃）</th><td data-edi-rho="'+v.rho+'">'+v.rho.toFixed(2)+' MΩ·cm / '+v.EC.toFixed(5)+' μS/cm<br>模拟计算，非实测；DuPont EDI-310 45-D01915 Rev2：满足Table1时≥15 MΩ·cm，未保证硅/TOC/钠。</td></tr></table>')};
+
+/* 离线工艺图 / 三听众演示。只在事件和既有沿程轮询中更新DOM，不进入3D帧循环。 */
+const PID={view:'3d',dirty:true,edges:[],equipment:[],valves:[]};
+// 保留场景、材质和 WebGL 资源；P&ID 只暂停既有帧循环。
+// 原事件监听器持有 wakeRender 引用，仍可能预约一帧，故在 loop 入口统一拦截。
+const pidLoop=loop;loop=function(){
+ if(PID.view==='pid'){PERF.raf=0;return}
+ pidLoop();
+};
+// 辅助设备没有独立去除段；仅关联其服务环节，明示关联而不新增水质算法。
+const pidAlongIndex=alongIndex;alongIndex=function(id){const i=pidAlongIndex(id);if(i>=0)return i;const support={'P-102':'T-101','B-101':'S-101','C-901':'T-301'};return pidAlongIndex(support[id])};
+const pidSelectionNote=document.createElement('small');pidSelectionNote.id='pidSelectionNote';el('alongReadout').after(pidSelectionNote);
+const pidAlongDraw=alongDraw;alongDraw=function(){pidAlongDraw();el('alongChart').dataset.metric=ALONG.metric;el('alongChart').setAttribute('aria-label',ALONG_MODEL.metrics[ALONG.metric][0]+' · 模拟沿程水质对数曲线');const support=['P-102','B-101','C-901','T-401','P-401','F-401'].indexOf(UI.sel)>=0;pidSelectionNote.textContent=support?'辅助设备无独立去除模型；曲线仅关联其服务环节。':'';pidSelectionNote.hidden=!support};
+const pidEscape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const viewTools=document.createElement('nav');viewTools.id='viewTools';viewTools.setAttribute('aria-label','工艺视图');
+viewTools.innerHTML='<button id="view3d" aria-pressed="true">3D</button><button id="viewPID" aria-pressed="false">P&amp;ID</button>';bar.append(viewTools);
+const pidPanel=document.createElement('section');pidPanel.id='pidPanel';pidPanel.hidden=true;
+pidPanel.innerHTML='<div class="pidHeading"><b>P&amp;ID · 工艺流程</b><span id="pidMode" role="status"></span><small>青色实线 / 箭头：通流及方向 · 灰线：隔离 · 绿阀开 / 红阀关</small></div><div id="pidDrawing"></div><details id="pidRegister"><summary>阀门 / 仪表完整位号表（与三维同源）</summary><div id="pidTags"></div></details><small class="pidFoot">罐体 / 滤床、圆形离心泵、膜单元、对夹三角阀、圆形仪表为工艺符号示意；交叉无圆点不相连。仅表达现有主干、回流及清洗支路，非施工图。流程止于纯水箱；出口仅示系统边界。</small>';
+stEl.append(pidPanel);
+// 主干按工艺展开；每条线列出真实管段id，不复制工况阀路表。
+const PID_POS={'T-101':[95,250],'P-101':[235,250],'F-101':[375,250],'F-102':[515,250],'S-101':[655,250],'F-103':[795,250],'P-201':[935,250],'RO-101':[1105,250],'T-201':[1325,250],
+ 'P-202':[1325,500],'RO-201':[1105,500],'EDI-301':[850,500],'T-301':[600,500],
+ 'P-102':[95,405],'B-101':[655,75],'D-101':[795,75],'D-102':[935,75],'D-103':[1440,405],
+ 'T-401':[245,740],'P-401':[445,740],'F-401':[655,740],'C-901':[95,600]};
+function pidSymbol(kind){
+ if(kind==='pump')return '<circle r="23"/><path d="M-12,-16 L18,0 -12,16 Z"/>';
+ if(kind==='skid')return '<rect x="-38" y="-25" width="76" height="50"/><path d="M-17,-25 V25 M0,-25 V25 M17,-25 V25 M-31,13 L31,-13"/>';
+ if(kind==='edi')return '<rect x="-38" y="-25" width="76" height="50"/><path d="M-22,-25 V25 M-10,-25 V25 M10,-25 V25 M22,-25 V25"/><text x="-33" y="5">+</text><text x="25" y="5">−</text>';
+ if(kind==='cab')return '<rect x="-32" y="-30" width="64" height="60"/><path d="M-20,-18 H20 M-20,-6 H20 M0,4 V23"/>';
+ const filter=kind==='filter'||kind==='cf';
+ return '<path d="M-25,-23 Q0,-37 25,-23 V23 Q0,37 -25,23 Z M-25,-23 Q0,-9 25,-23"/>'+(filter?'<path d="M-25,-8 H25 M-25,15 H25 M-20,0 L-10,9 M-5,0 L5,9 M10,0 L20,9"/>':kind==='chem'?'<path d="M-15,-35 H15 M0,-35 V10 M-13,10 H13"/>':'<path d="M-25,12 H25"/>');
+}
+function pidBuild(){
+ PID.dirty=false;
+ const defs='<defs><marker id="pidArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 0,10 Z" fill="#68c9d5"/></marker></defs>';
+ let lines='',devices='',tags='';PID.edges=[];
+ const route=(ids,points,ends)=>{
+  const pipes=ids.split(' ').map(k=>PIPES[k]).filter(Boolean);if(!pipes.length)return;
+  const index=PID.edges.length;PID.edges.push({pipes:pipes,ends:ends||[],points:points});
+  const a=points[0],b=points[1],label=a[1]===b[1]&&Math.abs(a[0]-b[0])>170?'<text class="pidPipeName" text-anchor="middle" x="'+((a[0]+b[0])/2)+'" y="'+(a[1]-10)+'">'+pidEscape(pipes[0].id)+'</text>':'';
+  lines+='<g data-pid-edge="'+index+'"><title>'+pidEscape(pipes.map(p=>p.id+' · '+p.name).join('\n'))+'</title><path class="pidLine" d="M'+points.map(p=>p.join(',')).join(' L')+'"/>'+label+'</g>';
+ };
+ route('RAW.mk',[[30,175],[95,175],[95,219]],['T-101']);
+ route('RAW.suc',[[122,250],[210,250]],['T-101','P-101']);
+ route('M.in M.vi',[[260,250],[348,250]],['P-101','F-101']);
+ route('M.bot M.out A.vi',[[402,250],[488,250]],['F-101','F-102']);
+ route('A.bot A.out S.vi',[[542,250],[628,250]],['F-102','S-101']);
+ route('S.bot S.out',[[682,250],[768,250]],['S-101','F-103']);
+ route('CF.out HPS',[[822,250],[910,250]],['F-103','P-201']);
+ route('HPD HPD2',[[960,250],[1065,250]],['P-201','RO-101']);
+ route('R1.pm R1.pm1 R1.pm2',[[1145,250],[1298,250]],['RO-101','T-201']);
+ route('MID.suc',[[1325,282],[1325,475]],['T-201','P-202']);
+ route('MID.dis',[[1300,500],[1145,500]],['P-202','RO-201']);
+ route('R2.pm R2.pm2 ED.fh',[[1065,500],[890,500]],['RO-201','EDI-301']);
+ route('ED.prod ED.prod2',[[810,500],[627,500]],['EDI-301','T-301']);
+ route('PW.out',[[573,500],[510,500]],['T-301']);
+ route('BW.suc',[[95,282],[95,380]],['T-101','P-102']);
+ route('BW.h0 BW.h1 BW.h2',[[120,405],[375,405],[375,282]],['P-102','F-101']);
+ route('S.br',[[655,107],[655,219]],['B-101','S-101']);
+ route('D1.l',[[795,107],[795,165],[725,165],[725,250]],['D-101','F-103']);
+ route('D2.l',[[935,107],[935,190],[750,190],[750,250]],['D-102','F-103']);
+ route('D3.l',[[1413,405],[1325,405]],['D-103','P-202']);
+ route('LP LP2',[[865,250],[865,335],[1020,335],[1020,250]],['F-103','RO-101']);
+ route('REC',INP.ro2Conc==='recycle'?[[1105,469],[1105,425],[935,425],[935,275]]:[[1105,469],[1105,425],[1200,425]],['RO-201','P-201']);
+ route('ED.cr',INP.ediConc==='mid'?[[850,469],[850,380],[1250,380],[1250,250],[1298,250]]:[[850,469],[850,380],[760,380]],['EDI-301','T-201']);
+ route('ED.el',[[850,532],[850,580],[960,580]],['EDI-301']);
+ route('R1.c R1.c2',[[1105,282],[1105,350],[1170,350]],['RO-101']);
+ route('R1.pd',[[1210,250],[1210,310],[1270,310]],['RO-101']);
+ route('R2.pd',[[990,500],[990,555],[1050,555]],['RO-201']);
+ route('CIP.suc',[[272,740],[420,740]],['T-401','P-401']);
+ route('CIP.dis',[[470,740],[628,740]],['P-401','F-401']);
+ route('CIP.s',[[682,740],[1015,740],[1015,300],[1105,300],[1105,282]],['F-401','RO-101']);
+ route('CIP.rc',[[1080,282],[1080,635],[245,635],[245,708]],['RO-101','T-401']);
+ route('CIP.rp',[[1145,265],[1175,265],[1175,675],[300,675],[300,740],[272,740]],['RO-101','T-401']);
+ route('CIP.makeup',[[1352,250],[1485,250],[1485,815],[245,815],[245,772]],['T-201','T-401']);
+ route('CIP.flushDrain',[[1105,350],[1175,350],[1175,605],[1250,605]],['RO-101']);
+ // 每条主要线的首个真实阀 / 仪表直接附在线上；完整记录在下方SVG表中。
+ const placedV=new Set(),placedI=new Set();
+ PID.edges.forEach((edge,index)=>{
+  const a=edge.points[0],b=edge.points[1],v=edge.pipes.reduce((r,p)=>r.concat(p.valves),[]).find(k=>!placedV.has(k)),ins=edge.pipes.reduce((r,p)=>r.concat(p.insts),[]).find(k=>!placedI.has(k));
+  if(v){placedV.add(v);const x=a[0]+(b[0]-a[0])*.4,y=a[1]+(b[1]-a[1])*.4;tags+=pidValve(VALVES[v],x,y,true,a[0]===b[0])}
+  if(ins&&a[1]===b[1]){placedI.add(ins);const x=a[0]+(b[0]-a[0])*.78,y=a[1]+(b[1]-a[1])*.78;tags+='<g class="pidInstrument" data-pid-inst="'+ins+'" transform="translate('+x+','+y+')"><title>'+pidEscape(INSTS[ins].name)+'</title><path d="M0,0 V-44"/><circle cy="-60" r="16"/><text y="-56">'+pidEscape(INSTS[ins].type)+'</text><text class="pidTag" y="-82">'+pidEscape(INSTS[ins].tag)+'</text></g>'}
+ });
+ Object.keys(EQ).forEach((id,i)=>{const e=EQ[id],p=PID_POS[id]||[95+i*100,900];devices+='<g class="pidEquipment" data-pid-eq="'+pidEscape(id)+'" data-symbol="'+e.kind+'" transform="translate('+p+')" role="button" tabindex="0" aria-label="'+pidEscape(id+' '+e.name)+'"><title>'+pidEscape(V4.eq[id]||e.name)+'</title><rect class="pidHit" x="-57" y="-43" width="114" height="112" rx="9"/>'+pidSymbol(e.kind)+'<text class="pidDeviceTag" y="47">'+pidEscape(id)+'</text><text class="pidDeviceName" y="64">'+pidEscape(e.name)+'</text></g>'});
+ el('pidDrawing').innerHTML='<svg id="pidSvg" viewBox="0 0 1530 860" aria-label="现有设备及主干工艺流程">'+defs+lines+tags+devices+'<text x="480" y="530" class="pidBoundary">系统边界</text><text x="1175" y="365" class="pidBoundary">浓水排放</text><text x="1260" y="610" class="pidBoundary">冲洗排放</text><text x="50" y="145" class="pidBoundary">市政来水</text></svg>';
+ const all=Object.keys(VALVES).map(k=>({v:VALVES[k]})).concat(Object.keys(INSTS).map(k=>({i:INSTS[k]})));
+ el('pidTags').innerHTML='<svg viewBox="0 0 1500 '+(Math.ceil(all.length/4)*74)+'" aria-label="全部阀门和仪表符号与位号">'+all.map((a,j)=>{const x=25+j%4*375,y=30+Math.floor(j/4)*74,o=a.v||a.i;return '<g transform="translate('+x+','+y+')">'+(a.v?pidValve(o,0,0,false):'<g class="pidInstrument" data-pid-inst="'+o.id+'"><circle r="18"/><text y="5">'+o.type+'</text></g>')+'<text x="30" y="0" class="pidRegisterTag">'+pidEscape(o.tag+' · '+o.id)+'</text><text x="30" y="20" class="pidRegisterName">'+pidEscape(o.name)+'</text><text x="30" y="36" class="pidRegisterName">'+pidEscape(o.pipe)+'</text></g>'}).join('')+'</svg>';
+ PID.equipment=Array.from(pidPanel.querySelectorAll('[data-pid-eq]'));PID.valves=Array.from(pidPanel.querySelectorAll('[data-pid-valve]'));
+ pidSync();
+}
+function pidValve(v,x,y,label,vertical){return '<g class="pidValve" data-pid-valve="'+v.id+'" transform="translate('+x+','+y+')"><title>'+pidEscape(v.tag+' '+v.name)+'</title><g transform="rotate('+(vertical?90:0)+')"><path d="M-11,-8 L11,8 V-8 L-11,8 Z"/>'+(v.type==='mot'?'<path d="M0,0 V-15"/><rect x="-6" y="-25" width="12" height="10"/>':'')+'</g>'+(label?'<text class="pidTag" x="'+(vertical?33:0)+'" y="'+(vertical?4:23)+'">'+v.tag+'</text>':'')+'</g>'}
+function pidSync(){
+ if(PID.view!=='pid'){PID.dirty=true;return}
+ if(!PID.equipment.length){pidBuild();return}
+ PID.dirty=false;el('pidMode').textContent=el('alongModeNote').textContent;pidPanel.dataset.mode=ALONG.mode;
+ PID.equipment.forEach(e=>{const on=e.dataset.pidEq===UI.sel;e.classList.toggle('selected',on);e.setAttribute('aria-pressed',String(on))});
+ PID.edges.forEach((edge,i)=>{const g=pidPanel.querySelector('[data-pid-edge="'+i+'"]'),active=edge.pipes.every(p=>p.on),p=active?edge.pipes[0]:null,path=g.querySelector('.pidLine');g.classList.toggle('flowing',active);g.classList.toggle('related',edge.ends.indexOf(UI.sel)>=0);g.dataset.active=String(active);g.dataset.direction=p?String(p.dir):'0';g.dataset.pipes=edge.pipes.map(p=>p.id).join(' ');path.removeAttribute('marker-start');path.removeAttribute('marker-end');if(p)path.setAttribute(p.dir<0?'marker-start':'marker-end','url(#pidArrow)')});
+ PID.valves.forEach(e=>{const v=VALVES[e.dataset.pidValve];e.classList.toggle('open',v.open);e.classList.toggle('closed',!v.open);e.dataset.open=String(v.open)});
+}
+function setProcessView(view){
+ const previous=PID.view;
+ PID.view=view==='pid'?'pid':'3d';pidPanel.hidden=PID.view!=='pid';stEl.classList.toggle('pidView',PID.view==='pid');
+ el('view3d').setAttribute('aria-pressed',String(PID.view==='3d'));el('viewPID').setAttribute('aria-pressed',String(PID.view==='pid'));
+ if(PID.view==='pid'){
+  cancelAnimationFrame(PERF.raf);PERF.raf=0;
+  if(!PID.equipment.length)pidBuild();else pidSync();alongTick();
+ }else{
+  // 暂停时间不计入动画步长或自适应画质，直接复用原场景恢复绘制。
+  if(previous==='pid'){_lt=performance.now();PERF.lastDraw=0}
+  wakeRender();
+ }
+}
+el('view3d').onclick=()=>setProcessView('3d');el('viewPID').onclick=()=>setProcessView('pid');
+function pidPick(e){const n=e.target.closest('[data-pid-eq]');if(n){selectEq(n.dataset.pidEq);alongTick()}}
+pidPanel.onclick=pidPick;pidPanel.onkeydown=e=>{if(e.target.closest('[data-pid-eq]')&&(e.key==='Enter'||e.key===' ')){e.preventDefault();pidPick(e)}};
+const pidSelect=selectEq;selectEq=function(k){pidSelect(k);pidSync();alongTick()};UI.selEq=selectEq;
+const pidHighlight=highlight;highlight=function(){pidHighlight();pidSync()};
+const pidApply=applyStep;applyStep=function(st){pidApply(st);pidSync()};
+const pidRebuild=rebuild;rebuild=function(){pidRebuild();PID.equipment=[];PID.dirty=true;if(PID.view==='pid')pidBuild();if(PRESENT.active)audienceCaption()};
+
+/* 演示沿用原全屏与恢复机制。字幕采用现有文案或现有数据的格式化结果，逐项保留出处。 */
+const AUDIENCE={route:'boss',index:0,playing:false,timer:null,sources:[],saved:null,interval:V4.interval};
+const audienceNames={boss:'客户老板',technical:'技术 / 工艺',operations:'运维'};
+const audienceSelect=document.createElement('select');audienceSelect.id='demoAudience';audienceSelect.setAttribute('aria-label','演示听众路线');
+audienceSelect.innerHTML=Object.keys(audienceNames).map(k=>'<option value="'+k+'">'+audienceNames[k]+'</option>').join('');demoButton.before(audienceSelect);
+const audienceControls=document.createElement('div');audienceControls.id='audienceControls';audienceControls.innerHTML='<label>听众 <select id="demoRoute" aria-label="演示中切换听众">'+audienceSelect.innerHTML+'</select></label><button id="demoPrev">上一步</button><button id="demoPlay">暂停</button><button id="demoNext">下一步</button><span id="demoProgress"></span>';demoTools.prepend(audienceControls);
+el('demoLoop').hidden=true;
+const audienceCard=document.createElement('section');audienceCard.id='audienceCard';audienceCard.hidden=true;audienceCard.innerHTML='<b id="audienceTitle"></b><div id="audienceSubtitle" role="status"></div><small id="audienceSource">字幕取自页面现有设备说明、模型推断、沿程模拟和达标对照；非实测。P&amp;ID 启动演示时自动切回 3D，退出恢复原视图。</small>';stEl.append(audienceCard);
+function audienceNodes(){
+ if(AUDIENCE.route==='operations')return [
+  {id:'C-901',step:'standby',m:0},{id:'T-301',step:'run',m:0},{id:'RO-101',step:'c0',m:2},{id:'T-401',step:'c1',m:2},{id:'P-401',step:'c4',m:2},{id:'RO-101',step:'c5',m:2},{id:'C-901',fault:true},{id:'T-301',step:'run',m:0}
+ ];
+ const ids=AUDIENCE.route==='technical'?Object.keys(EQ):['T-101','F-101','F-102','S-101','RO-101','RO-201','EDI-301','T-301'];
+ // 支路先讲，纯水箱作为终站；没有增加下游工艺。
+ return ids.filter(k=>k!=='T-301').concat(['T-301']).filter(k=>EQ[k]).map(k=>({id:k}));
+}
+function audienceCaption(){
+ if(!PRESENT.active||!AUDIENCE.saved)return;
+ const n=audienceNodes()[AUDIENCE.index];if(!n||!EQ[n.id])return;
+ const sources=[],add=(source,text)=>{if(text)sources.push({source:source,text:String(text)})};
+ add('V4.eq['+n.id+']',V4.eq[n.id]);
+ if(n.step){const s=MODES[n.m].steps.find(s=>s.k===n.step);add('V4.explain['+n.step+']',V4.explain(s));add('MODES['+n.m+'].'+n.step,s.d)}
+ if(n.fault){add('OPS_NAMES',Object.keys(OPS_NAMES).map(k=>OPS_NAMES[k]).join(' · '));add('#opsStatus',el('opsStatus').textContent);add('V4.steps.sd1',V4.steps.sd1[1]);add('V4.steps.sd3',V4.steps.sd3[1]);add('V4.steps.c5',V4.steps.c5[1])}
+ if(AUDIENCE.route==='boss'){
+  ['keyFlow','keyRecovery','keyQuality'].forEach(id=>add('#'+id,el(id).parentElement.textContent));
+  add('#caseNotice',el('caseNotice').textContent);
+ }else if(AUDIENCE.route==='technical'){
+  const station=stationFor(n.id);if(station)add('stationFor('+n.id+').how',station.how);
+  eqNumbers(n.id).forEach((r,i)=>add('eqNumbers('+n.id+')['+i+']',r.text));
+  const i=alongIndex(n.id),row=ALONG.result.rows[i];
+  if(row){add('ALONG.result.rows['+i+'].source',row.source);Object.keys(ALONG_MODEL.metrics).forEach(k=>add('ALONG.result.rows['+i+'].'+k,ALONG_MODEL.metrics[k][0]+'：'+alongNum(row.in[k])+' → '+alongNum(row.out[k])+' '+ALONG_MODEL.metrics[k][1]))}
+ }
+ if(n.id==='T-301'||n.id==='EDI-301'){
+  add('#productWarning',el('productWarning').textContent);
+  add('#productConclusion',el('productConclusion').textContent);
+  add('#productStandard',el('productStandard').selectedOptions[0].textContent);
+  add('#productRows',el('productRows').querySelector('[data-product="rho"]')?el('productRows').querySelector('[data-product="rho"]').textContent:el('productRows').querySelector('tr').textContent);
+  add('PRODUCT.rows',PRODUCT.rows.filter(r=>r.status==='需实测').map(r=>r.name+'：'+r.status).join('；'));
+ }
+ AUDIENCE.sources=sources;
+ el('audienceTitle').textContent=audienceNames[AUDIENCE.route]+' · '+EQ[n.id].name;
+ const text=sources.map(s=>s.text).join('\n');if(el('audienceSubtitle').textContent!==text)el('audienceSubtitle').textContent=text;
+ el('demoProgress').textContent=(AUDIENCE.index+1)+' / '+audienceNodes().length;
+ el('demoPrev').disabled=AUDIENCE.index===0;el('demoNext').disabled=AUDIENCE.index===audienceNodes().length-1;
+}
+function audiencePause(){clearTimeout(AUDIENCE.timer);AUDIENCE.timer=null;AUDIENCE.playing=false;el('demoPlay').textContent='继续'}
+function audienceSchedule(){clearTimeout(AUDIENCE.timer);if(!AUDIENCE.playing||document.hidden)return;AUDIENCE.timer=setTimeout(()=>{if(AUDIENCE.index>=audienceNodes().length-1){audiencePause();el('demoPlay').textContent='重新播放';return}audienceGo(AUDIENCE.index+1);audienceSchedule()},AUDIENCE.interval)}
+function audiencePlay(){if(!PRESENT.active)return;if(AUDIENCE.playing){audiencePause();return}if(AUDIENCE.index>=audienceNodes().length-1)audienceGo(0);AUDIENCE.playing=true;el('demoPlay').textContent='暂停';audienceSchedule();wakeRender()}
+function audienceGo(index){
+ AUDIENCE.index=Math.max(0,Math.min(audienceNodes().length-1,index));const n=audienceNodes()[AUDIENCE.index];
+ if(AUDIENCE.index===0&&AUDIENCE.route!=='operations')alongMode('run');
+ if(n.step){const i=MODES[n.m].steps.findIndex(s=>s.k===n.step);gotoStep(n.m,i)}
+ selectEq(n.id);alongTick();audienceCaption();el('audienceSubtitle').scrollTop=0;
+}
+let audienceStartFrame=0;
+const audienceStart=startDemo;startDemo=function(){
+ if(PRESENT.active||audienceStartFrame)return;
+ AUDIENCE.saved={view:PID.view,mode:UI.mode,step:UI.step};AUDIENCE.route=el('demoAudience').value;AUDIENCE.index=0;AUDIENCE.interval=V4.interval;
+ // 先让视图切换退出点击任务，并留出一帧呈现已有 3D，再运行演示初始化。
+ audienceStartFrame=requestAnimationFrame(()=>{
+  setProcessView('3d');
+  audienceStartFrame=requestAnimationFrame(()=>{
+   audienceStartFrame=0;
+   audienceStart();clearTimeout(overviewResize);PRESENT.overview=false;
+   el('demoRoute').value=AUDIENCE.route;audienceCard.hidden=false;audienceGo(0);audiencePlay();
+  });
+ });
+};
+const audienceExit=exitDemo;exitDemo=function(){
+ if(audienceStartFrame){cancelAnimationFrame(audienceStartFrame);audienceStartFrame=0;const saved=AUDIENCE.saved;AUDIENCE.saved=null;if(saved)setProcessView(saved.view);return}
+ if(!PRESENT.active)return;audiencePause();audienceCard.hidden=true;const saved=AUDIENCE.saved;
+ // 先恢复阀路，再由原退出函数恢复选择、相机、语言、导览与水滴。
+ if(saved){UI.mode=saved.mode;UI.step=saved.step;applyStep(MODES[saved.mode].steps[saved.step]);renderOp()}
+ AUDIENCE.saved=null;audienceExit();if(saved)setProcessView(saved.view);alongTick();
+};
+demoButton.onclick=startDemo;el('demoExit').onclick=exitDemo;
+el('demoPlay').onclick=audiencePlay;el('demoPrev').onclick=()=>{audiencePause();audienceGo(AUDIENCE.index-1)};el('demoNext').onclick=()=>{audiencePause();audienceGo(AUDIENCE.index+1)};
+el('demoRoute').onchange=()=>{audiencePause();AUDIENCE.route=el('demoRoute').value;el('demoAudience').value=AUDIENCE.route;audienceGo(0);audiencePlay()};
+// 捕获演示快捷键，防止既有导览同时前进；输入控件保持原按键。
+document.addEventListener('keydown',e=>{if((!PRESENT.active&&!audienceStartFrame)||e.target.closest('input,textarea,select,[contenteditable="true"]')||e.ctrlKey||e.metaKey||e.altKey)return;if(['ArrowRight','PageDown','ArrowLeft','PageUp',' ','Home','Escape','f','F'].indexOf(e.key)<0)return;e.preventDefault();e.stopImmediatePropagation();if(e.repeat)return;if(e.key==='Escape'||e.key==='f'||e.key==='F')exitDemo();else if(audienceStartFrame)return;else if(e.key===' ')audiencePlay();else{audiencePause();audienceGo(e.key==='Home'?0:AUDIENCE.index+(['ArrowLeft','PageUp'].indexOf(e.key)>=0?-1:1))}},true);
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&PRESENT.active)audiencePause()});
+const audienceTick=alongTick;alongTick=function(){audienceTick();if(PRESENT.active&&!document.hidden)audienceCaption()};
+// 既有setInterval已持有原alongTick引用；用已有opsTick的1Hz回调刷新动态字幕。
+const audienceOpsTick=opsTick;opsTick=function(dt){audienceOpsTick(dt);if(PRESENT.active&&!document.hidden)audienceCaption()};
+
+const pidStyle=document.createElement('style');pidStyle.textContent=`
+#viewTools{display:flex;margin-left:auto;gap:3px}#viewTools button[aria-pressed=true]{background:var(--c2);border-color:#68c9d5;color:var(--ac)}#demoAudience{max-width:135px}#pidPanel{position:absolute;inset:0;z-index:10;overflow:auto;background:var(--bg);color:var(--tx);padding:10px;box-sizing:border-box}#pidPanel[hidden],#audienceCard[hidden],#demoLoop[hidden]{display:none!important}.pidHeading{display:flex;gap:12px;flex-wrap:wrap;align-items:center;padding:4px 6px}.pidHeading b{font-size:15px}.pidHeading small,#pidMode{font-size:11px;color:var(--mu)}#pidDrawing svg{width:100%;min-width:970px;display:block;max-height:none}#pidDrawing{overflow:auto}.pidFoot{display:block;color:var(--mu);font-size:11px;padding:8px}#pidRegister{padding:8px;border-top:1px solid var(--bd)}#pidTags svg{width:100%;min-width:970px}#pidTags{overflow:auto}.pidView>#cv,.pidView>#lab,.pidView>#cams,.pidView>#tgl,.pidView>#cap,.pidView>#roomStyle,.pidView>#waterLegend{visibility:hidden;pointer-events:none}
+.pidLine{fill:none;stroke:#49596b;stroke-width:2}.flowing .pidLine{stroke:#68c9d5;stroke-width:3}.related .pidLine{stroke:#a2bfff;stroke-width:5}.pidPipeName{fill:var(--mu);font-size:10px;pointer-events:none}.pidEquipment{cursor:pointer;fill:var(--cd);stroke:#a9becc;stroke-width:2}.pidEquipment text{stroke:none;fill:var(--tx);text-anchor:middle;font-size:12px}.pidEquipment .pidDeviceTag{font-size:13px;font-weight:bold}.pidEquipment .pidDeviceName{font-size:11px}.pidHit{fill:transparent;stroke:transparent;pointer-events:all}.pidEquipment.selected .pidHit,.pidEquipment:focus .pidHit{stroke:#79ccd6;fill:transparent;stroke-width:3}.pidEquipment.selected>path,.pidEquipment.selected>circle,.pidEquipment.selected>rect:not(.pidHit){stroke:#91e6ec}.pidValve{stroke:#91a2b3;fill:var(--bg);stroke-width:1.8}.pidValve.open{stroke:#66d8aa}.pidValve.closed{stroke:#e18b95}.pidValve text,.pidInstrument text{stroke:none;fill:var(--tx);text-anchor:middle;font-size:11px}.pidTag{font-size:10px!important}.pidInstrument{fill:var(--cd);stroke:#9db2c4;stroke-width:1.3}.pidBoundary,.pidRegisterTag,.pidRegisterName{fill:var(--tx);stroke:none;font-size:12px}.pidRegisterName{fill:var(--mu);font-size:10px}
+#audienceControls{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-right:auto}#demoProgress{font-size:12px}#audienceCard{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);width:min(790px,88%);z-index:20;padding:12px 16px;box-sizing:border-box;background:var(--cd);border:1px solid #68c9d5;border-radius:10px;box-shadow:0 5px 20px #0006}#audienceTitle{font-size:14px;color:var(--ac)}#audienceSubtitle{white-space:pre-line;font-size:13px;line-height:1.65;margin:6px 0;max-height:180px;overflow:auto}#audienceSource{display:block;color:var(--mu);font-size:10px}.presenting .side,.presenting .side:has(#tour:not([hidden])){display:none!important}.presenting #waterLegend{display:none}.presenting #audienceControls button{min-height:44px}.presenting #demoTools{justify-content:space-between}#demoAudience{font-size:12px}@media(max-width:1000px){#viewTools{margin-left:0}#v4bar #viewTools button{flex:none}#audienceSubtitle{max-height:115px}#audienceCard{bottom:8px;width:94%;padding:8px}#demoTools{height:auto!important;flex-wrap:wrap}#pidDrawing svg,#pidTags svg{min-width:970px}}
+@media(max-width:1000px){#v4bar{height:auto;min-height:110px;grid-template-rows:44px 14px 44px}#demoAudience{grid-column:1/3;grid-row:3;max-width:none}#viewTools{grid-column:3/5;grid-row:3;justify-content:flex-end}}
+`;document.head.append(pidStyle);window.pidDemoReady=true;
 </script></body></html>
