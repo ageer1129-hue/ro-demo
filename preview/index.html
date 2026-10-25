@@ -2442,6 +2442,12 @@ function fadePipes(force){
     if(p.fa!==p._fa){p._fa=p.fa;const m=p.tube.material;m.transparent=p.fa<0.99;m.opacity=p.fa;m.depthWrite=p.fa>0.6;m.needsUpdate=true;p.flow.material.opacity=0.95*(0.35+0.65*p.fa)}});
 }
 
+// 几何控制点改向后保留29步原rev列表；仅适配可视箭头方向，阀路/流量不变。
+function alignPipeFlow(){
+ if(alignPipeFlow.ready)return;alignPipeFlow.ready=true;const apply=applyStep;
+ applyStep=function(st){apply(st);new Set(Object.values(PIPES)).forEach(p=>{if(p.flowReoriented)p.dir*=-1})};
+}
+
 /* ====== 工厂布局：设备位置（m）与管路 ====== */
 let PLANT=null;
 function buildPlant(d,Z){
@@ -2519,7 +2525,8 @@ function plumb(eq,d,Z){
   const ins=(id,type,pipe,at,name,unit,o)=>{const i=addInst(Object.assign({id:id,type:type,pipe:pipe,at:at,name:name,unit:unit},o||{}));
     const pre={PI:'PI',PT:'PT',FT:'FT',CE:'CE',AE:'AE',SV:'SV',INJ:'INJ',EJ:'EJ'}[type];i.tag=nextTag(pre,100);addLabel({html:i.tag,pos:i.pos,cls:'i',kind:'inst',maxD:8});return i};
   // 地漏
-  const fdrain=(x,z)=>{const m=box(0.3,0.02,0.3,MT.ssd,x,0.015,z);PADD(m)};
+  const drains=new THREE.Group();PADD(drains);
+  const fdrain=(x,z)=>drains.add(box(0.3,0.02,0.3,MT.ssd,x,0.015,z));
   const E=eq;
   // 水箱顶部呼吸器（通气口）标注
   ['T101','T201','T301','T401'].forEach(k=>{const t=E[k];if(!t)return;t.g.updateMatrixWorld(true);addLabel({html:'通气口',pos:V3(-t.R*0.55,t.y0+t.H+0.55,0.1).applyMatrix4(t.g.matrixWorld),cls:'i',kind:'inst',maxD:7})});
@@ -2532,17 +2539,17 @@ function plumb(eq,d,Z){
   vlv('RAW.sv','bf','RAW.suc',0.7,'原水泵吸入阀');
   const pd=portW(E.P101,'dis');
     const filt=[['M',E.F101,'F-101'],['A',E.F102,'F-102'],['S',E.S101,'S-101']];
-  // 同一低位管廊容纳不同介质，顺序主管只在低位沿排向右。
-  // 各罐只用自身前侧一根进水竖管；顶部最后一小段接原进口，不跨接其他罐。
-  const clearance=.18,rowY=jy;
-  const topY=e=>portW(e,'top').y,ytee=e=>rowY,exitX=e=>e.g.position.x+e.R+clearance;
+  // 前面管：上游侧高位进水、下游侧低位出水；罐间在下一罐左侧爬升。
+  const clearance=.18;
+  const topY=e=>portW(e,'top').y,inletX=e=>e.g.position.x-e.R-.25,exitX=e=>e.g.position.x+e.R+.25;
   const boxOf=e=>new THREE.Box3().setFromObject(e.g);
   const skidSideX=boxOf(E.R201).max.x+.4;
   // 下排沿RO2前侧撬边，不沿平台外沿描框。
   const lowerZ=Math.max(...Object.keys(E.R201.ports).filter(k=>/^v\d+L$/.test(k)).map(k=>E.R201.ports[k].z))+.55;
   const sideBranch=(a,b,x,y)=>[a,V3(a.x,y,a.z),V3(x,y,a.z),V3(x,y,b.z),V3(b.x,y,b.z),b];
   // 二级浓水沿下排同廊向左，贴撬左侧直达一级泵吸入口；不在两级之间横穿。
-  const lowerReturn=(a,b,y)=>[a,V3(a.x,y,a.z),V3(a.x,y,lowerZ),V3(b.x,y,lowerZ),V3(b.x,y,b.z),b];
+  const returnX=a=>a.x+(a.x>portW(E.R201,'ctr').x?.75:-.75);
+  const lowerReturn=(a,b,y)=>[a,V3(returnX(a),a.y,a.z),V3(returnX(a),y,a.z),V3(returnX(a),y,lowerZ),V3(b.x-.45,y,lowerZ),V3(b.x-.45,y,b.z),V3(b.x-.45,b.y,b.z),b];
   const dnu={M:Math.max(DNq(Qr,2.0),Z.mmf.bw*Math.PI/4*Z.mmf.D*Z.mmf.D>0?DNq(Z.mmf.bw*Math.PI/4*Z.mmf.D*Z.mmf.D,2.8):0),
              A:Math.max(DNq(Qr,2.0),DNq(Z.acf.bw*Math.PI/4*Z.acf.D*Z.acf.D,2.8)),
              S:Math.max(DNq(Qr,2.0),DNq(Z.sof.bw*Math.PI/4*Z.sof.D*Z.sof.D,2.8))};
@@ -2551,19 +2558,19 @@ function plumb(eq,d,Z){
   const bwT=portW(t1,'bw');const pbs=portW(E.P102,'suc'),pbd=portW(E.P102,'dis');
   mk('BW.suc','raw',[bwT,V3(bwT.x,.5,pbs.z),V3(pbs.x-.6,.5,pbs.z),V3(pbs.x-.6,pbs.y,pbs.z),pbs],P_bw(Z),2.0,{name:'反洗泵吸入管',from:'T-101',to:'P-102'});
   vlv('BW.sv','bf','BW.suc',-0.7,'反洗泵吸入阀');
-  const bwy=.38,bwz=z1+.18;
+  const bwy=.70,bwz=z1+.8;
   filt.forEach(([u,e,tg],i)=>{
     const x=e.g.position.x,xn=i<2?filt[i+1][1].g.position.x:null;
-    const yt=ytee(e);const dn=dnu[u];
+    const yt=topY(e),xi=inletX(e),xo=exitX(e);const dn=dnu[u];
     // 进口管
-    if(u=='M')mk('M.in','raw',[pd,V3(pd.x,jy,pd.z),V3(pd.x,jy,z1),V3(x,jy,z1)],Qr,2.0,{dn:dn,name:'原水泵出水 → 多介质进水',from:'P-101',to:'F-101'});
-    mk(u+'.vi','raw',[V3(x,yt,z1),V3(x,yt,e.g.position.z+e.R+clearance),V3(x,topY(e),e.g.position.z+e.R+clearance),portW(e,'top')],Qr,2.0,{dn:dn,name:tg+' 进水支管',from:'进水管',to:tg});
-    mk(u+'.bo','drain',[V3(x,yt,z1),V3(x,.05,z1)],BWq[u],2.5,{dn:dn,name:tg+' 反洗排水',from:tg,to:'排水沟'});
+    if(u=='M')mk('M.in','raw',[pd,V3(pd.x,yt,pd.z),V3(xi,yt,pd.z),V3(xi,yt,z1)],Qr,2.0,{dn:dn,name:'原水泵出水 → 多介质进水',from:'P-101',to:'F-101'});
+    mk(u+'.vi','raw',[V3(xi,yt,z1),V3(x,yt,z1),portW(e,'top')],Qr,2.0,{dn:dn,name:tg+' 进水支管',from:'进水管',to:tg});
+    mk(u+'.bo','drain',[V3(x-.35,yt,z1),V3(x-.35,yt,z1+.65),V3(x-.35,.05,z1+.65)],BWq[u],2.5,{dn:dn,name:tg+' 反洗排水',from:tg,to:'排水沟'});
     const bot=e.ports.bot.clone().add(e.g.position);
-    mk(u+'.bot','raw',[bot,V3(x,jy,bot.z),V3(x,jy,z1),V3(exitX(e),jy,z1)],Qr,2.0,{dn:dn,name:tg+' 底部汇管',from:tg,to:'出水/反洗阀组'});
+    mk(u+'.bot','raw',[bot,V3(x,jy,bot.z),V3(xo,jy,bot.z),V3(xo,jy,z1)],Qr,2.0,{dn:dn,name:tg+' 底部汇管',from:tg,to:'出水/反洗阀组'});
     // 出口管
-    if(u!='S'){const xn_=xn,en=filt[i+1][1],ytn=ytee(en);
-      mk(u+'.out','raw',[V3(exitX(e),jy,z1),V3(xn_,jy,z1)],Qr,2.0,{dn:dn,name:tg+' 出水 → '+filt[i+1][2]+' 进水',from:tg,to:filt[i+1][2]});
+    if(u!='S'){const en=filt[i+1][1],xin=inletX(en),ytn=topY(en);
+      mk(u+'.out','raw',[V3(xo,jy,z1),V3(xin,jy,z1),V3(xin,ytn,z1)],Qr,2.0,{dn:dn,name:tg+' 出水 → '+filt[i+1][2]+' 进水',from:tg,to:filt[i+1][2]});
       // 该管道同时是下一单元的 .in
       PIPES[filt[i+1][0]+'.in']=PIPES[u+'.out'];
     }else{
@@ -2571,15 +2578,15 @@ function plumb(eq,d,Z){
       mk('S.out','raw',[V3(exitX(e),jy,z1),V3(cfin.x-clearance,jy,z1),V3(cfin.x-clearance,jy,cfin.z),V3(cfin.x-clearance,cfin.y,cfin.z),cfin],Qr,2.0,{dn:Math.max(DNq(Qr,2.0),65),name:'软化器出水 → 保安过滤器',from:'S-101',to:'F-103'});
     }
     // 反洗进水（自反洗总管）
-    mk(u+'.bi','raw',[V3(x,bwy,bwz),V3(exitX(e),bwy,bwz),V3(exitX(e),jy,bwz),V3(exitX(e),jy,z1)],BWq[u],2.5,{dn:dn,name:tg+' 反洗进水',from:'反洗总管',to:tg});
+    mk(u+'.bi','raw',[V3(x,bwy,bwz),V3(x,bwy,z1),V3(xo,bwy,z1),V3(xo,jy,z1)],BWq[u],2.5,{dn:dn,name:tg+' 反洗进水',from:'反洗总管',to:tg});
     // 正洗排水
-    mk(u+'.rs','drain',[V3(exitX(e),jy,z1),V3(exitX(e),0.05,z1)],BWq[u]*0.6,3.0,{dn:Math.min(dn,100),name:tg+' 正洗 / 排水',from:tg,to:'地漏'});
-    fdrain(exitX(e),zf);
+    mk(u+'.rs','drain',[V3(xo,jy,z1-.4),V3(xo+.5,jy,z1-.4),V3(xo+.5,0.05,z1-.4)],BWq[u]*0.6,3.0,{dn:Math.min(dn,100),name:tg+' 正洗 / 排水',from:tg,to:'地漏'});
+    fdrain(x-.35,z1+.65);fdrain(xo+.5,z1-.4);
     // 阀门
-    vlv(u+'.bo_v','mot',u+'.bo',1.1,tg+' 反洗排水阀（上排）');
+    vlv(u+'.bo_v','mot',u+'.bo',1.0,tg+' 反洗排水阀（上排）');
     vlv(u+'.vo_v','mot',u+'.out',u=='S'?0.4:0.7,tg+' 出水阀');
-    vlv(u+'.bi_v','mot',u+'.bi',-0.25,tg+' 反洗进水阀');
-    vlv(u+'.rs_v','mot',u+'.rs',0.45,tg+' 正洗排水阀');
+    vlv(u+'.bi_v','mot',u+'.bi',-0.75,tg+' 反洗进水阀');
+    vlv(u+'.rs_v','mot',u+'.rs',0.25,tg+' 正洗排水阀');
   });
   vlv('M.vi_v','mot','M.in',-0.7,'F-101 进水阀');vlv('A.vi_v','mot','M.out',-0.7,'F-102 进水阀');vlv('S.vi_v','mot','A.out',-0.7,'S-101 进水阀');
   // 反洗总管（分三段）
@@ -2589,20 +2596,22 @@ function plumb(eq,d,Z){
   mk('BW.h2','raw',[V3(xs[1],bwy,bwz),V3(xs[2],bwy,bwz)],BWq.S,2.8,{dn:Math.max(DNq(BWq.S,2.8),65),name:'反洗总管（→ S-101）',from:'',to:'S-101'});
   vlv('BW.pv','bf','BW.h0',0.35,'反洗泵出口阀');
   // 软化器：盐水再生管（经喷射器）
-  const bt=E.B101,btx=bt.g.position.x,btz=bt.g.position.z;const ySin=ytee(E.S101);
-  mk('S.br','brine',[V3(btx-bt.R,.55,btz),V3(btx-bt.R-.4,.55,btz),V3(btx-bt.R-.4,ySin,btz),V3(btx-bt.R-.4,ySin,z1),V3(xs[2],ySin,z1)],1.0,2.0,{dn:40,name:'盐水吸入管（喷射器）',from:'B-101',to:'S-101'});
+  const bt=E.B101,btx=bt.g.position.x,btz=bt.g.position.z;
+  const brJoin=pipeAt(PIPES['S.in'],PIPES['S.in'].len-1.25).p;
+  mk('S.br','brine',[V3(btx-bt.R,.55,btz),V3(btx-bt.R-.25,.55,btz),V3(btx-bt.R-.25,1.1,btz),V3(brJoin.x,1.1,btz),V3(brJoin.x,brJoin.y,btz),brJoin],1.0,2.0,{dn:40,name:'盐水吸入管（喷射器）',from:'B-101',to:'S-101'});
   vlv('S.brv','ball','S.br',0.45,'盐水吸入阀');
   const ej=ins('S.EJ','EJ','S.in',-1.25,'再生喷射器（吸盐）','');
   // 保安过滤器 → 高压泵吸入
   const cfo=portW(E.F103,'out');const ps=portW(E.P201,'suc'),pdd=portW(E.P201,'dis');const zp=E.P201.g.position.z;
-  mk('CF.out','raw',[cfo,V3(cfo.x+clearance,cfo.y,cfo.z),V3(cfo.x+clearance,jy,cfo.z),V3(cfo.x+clearance,jy,z1),V3(8.0,jy,z1),V3(8.0,jy,zp),V3(5.2,jy,zp)],Qr,2.0,{dn:Math.max(DNq(Qr,1.5),65),name:'保安过滤器出水',from:'F-103',to:'P-201'});
-  mk('HPS','raw',[V3(5.2,jy,zp),V3(5.2,ps.y,zp),ps],F.Q1,1.5,{dn:Math.max(DNq(F.Q1,1.5),80),name:'一级高压泵吸入管',from:'F-103 / 二级浓水回流',to:'P-201'});
+  mk('CF.out','raw',[cfo,V3(cfo.x+.9,cfo.y,cfo.z),V3(cfo.x+.9,jy,cfo.z),V3(cfo.x+.9,jy,zp-.85),V3(5.2,jy,zp-.85),V3(5.2,ps.y,zp-.85),V3(5.2,ps.y,zp)],Qr,2.0,{dn:Math.max(DNq(Qr,1.5),65),name:'保安过滤器出水',from:'F-103',to:'P-201'});
+  mk('HPS','raw',[V3(5.2,ps.y,zp),ps],F.Q1,1.5,{dn:Math.max(DNq(F.Q1,1.5),80),name:'一级高压泵吸入管',from:'F-103 / 二级浓水回流',to:'P-201'});
   vlv('HPS.v','mot','HPS',-0.45,'高压泵吸入阀');
   // 加药管
-  const d1=portW(E.D101,'out'),d2=portW(E.D102,'out'),doseX=(boxOf(E.B101).max.x+boxOf(E.F103).min.x)/2,doseZ=Math.min(boxOf(E.D101).min.z,boxOf(E.D102).min.z)-clearance;
-  const doseRoute=(a,at,y)=>{const b=pipeAt(PIPES['S.out'],at).p;return [a,V3(a.x,jy+.06,a.z),V3(a.x,jy+.06,z1),V3(b.x,jy+.06,z1),b]};
-  mk('D1.l','chem',doseRoute(d1,.9,.8),0.0005,1,{dn:15,name:'阻垢剂加药管',from:'D-101',to:'S-101 出水管'});
-  mk('D2.l','chem',doseRoute(d2,1.5,.65),0.0003,1,{dn:15,name:'还原剂加药管',from:'D-102',to:'S-101 出水管'});
+  const d1=portW(E.D101,'out'),d2=portW(E.D102,'out');
+  // 两条细管各走一个侧向/高位通道，最后竖直注入同一主管的两个独立三通。
+  const doseRoute=(a,at,y,z)=>{const b=pipeAt(PIPES['S.out'],at).p;return [a,V3(a.x,y,a.z),V3(a.x,y,z),V3(b.x,y,z),V3(b.x,y,b.z),b]};
+  mk('D1.l','chem',doseRoute(d1,1.7,1.1,z1-.35),0.0005,1,{dn:15,name:'阻垢剂加药管',from:'D-101',to:'S-101 出水管'});
+  mk('D2.l','chem',doseRoute(d2,2.4,1.45,z1-.7),0.0003,1,{dn:15,name:'还原剂加药管',from:'D-102',to:'S-101 出水管'});
   // 高压泵出口 → 一级膜壳
   const sk=E.R101,S=sk.skid,n1=S.nvs[0],n2=S.nvs[1]||0,nT=S.nT;const yh=1.65;const LPQ=Math.min(5.0*nT,0.9*Qr);
   const pf=i=>sk.ports['v'+i+'L'],pr=i=>sk.ports['v'+i+'R'],pp=i=>sk.ports['v'+i+'pR'];
@@ -2614,24 +2623,24 @@ function plumb(eq,d,Z){
   vlv('HPD.chk','chk','HPD',0.5,'高压泵出口止回阀',{ss:true});
   vlv('HPD.v','mot','HPD',1.75,'高压泵出口电动慢开阀',{ss:true});
   // 低压冲洗旁路 / CIP 供液接入点
-  mk('LP','raw',[V3(5.2,jy,zp),V3(8.2,jy,zp),V3(8.2,2.0,zp)],LPQ,2.0,{name:'低压冲洗旁路（绕过高压泵）',from:'F-103 出水',to:'RO-101 进水总管'});
-  mk('LP2','raw',[V3(8.2,2.0,zp),V3(xj,2.0,zp),V3(xj,yh,zp)],LPQ,2.0,{name:'低压冲洗 / CIP 供液汇入管',from:'',to:'RO-101 进水总管'});
+  mk('LP','raw',[V3(5.2,ps.y,zp),V3(5.2,ps.y,zp+.55),V3(5.2,.95,zp+.55),V3(8.2,.95,zp+.55),V3(8.2,1.4,zp+.55)],LPQ,2.0,{name:'低压冲洗旁路（绕过高压泵）',from:'F-103 出水',to:'RO-101 进水总管'});
+  mk('LP2','raw',[V3(8.2,1.4,zp+.55),V3(8.2,2.0,zp+.55),V3(8.2,2.0,zp),V3(xj,2.0,zp),V3(xj,yh,zp)],LPQ,2.0,{name:'低压冲洗 / CIP 供液汇入管',from:'',to:'RO-101 进水总管'});
   vlv('LP.v','mot','LP',0.85,'低压冲洗阀');
   if(n1>1)mk('R1.fh','raw',[V3(xL,yh,zA),V3(xL,yh,zB)],F.Q1,3.0,{ss:true,dn:DNq(F.Q1,3.0),name:'一级进水总管',from:'',to:''});
   for(let i=0;i<nT;i++){
     const st=i<n1?0:1;
-    if(st==0)mk('R1.fs'+i,'raw',[V3(pf(i).x,pf(i).y,pf(i).z),V3(xL,yh,pf(i).z)],F.Q1/n1,3.0,{ss:true,dn:80,name:'一级第'+(i+1)+'壳进水支管',from:'进水总管',to:'RO-101 第'+(i+1)+'壳'});
+    if(st==0)mk('R1.fs'+i,'raw',[V3(xL,yh,pf(i).z),V3(pf(i).x,pf(i).y,pf(i).z)],F.Q1/n1,3.0,{ss:true,dn:80,name:'一级第'+(i+1)+'壳进水支管',from:'进水总管',to:'RO-101 第'+(i+1)+'壳'});
   }
   // 段间总管（段1浓水 → 段2进水）：位于膜壳远端
   const xR=pr(0).x;const zAll0=pr(0).z,zAll1=pr(nT-1).z;
   if(n2>0){
     mk('R1.is','conc',[V3(xR,yh,zAll0),V3(xR,yh,zAll1)],F.Q1-F.Q1perm*0+0,2.5,{ss:true,dn:DNq(sk&&d.r1.stageSummary[0].qConc,2.5),name:'一级段间总管（第一段浓水 → 第二段进水）',from:'第一段浓水',to:'第二段进水'});
     PIPES['R1.is'].Q=d.r1.stageSummary[0].qConc;PIPES['R1.is'].v=RO.velAt(PIPES['R1.is'].Q,PIPES['R1.is'].dn);
-    for(let i=0;i<nT;i++)mk('R1.is'+i,'conc',[V3(pr(i).x,pr(i).y,pr(i).z),V3(xR,yh,pr(i).z)],i<n1?d.r1.stageSummary[0].qConc/n1:d.r1.stageSummary[0].qConc/n2,2.5,{ss:true,dn:80,name:(i<n1?'第一段浓水出口 ':'第二段进水口 ')+'（第'+(i+1)+'壳）'});
+    for(let i=0;i<nT;i++)mk('R1.is'+i,'conc',(i<n1?[V3(pr(i).x,pr(i).y,pr(i).z),V3(xR,yh,pr(i).z)]:[V3(xR,yh,pr(i).z),V3(pr(i).x,pr(i).y,pr(i).z)]),i<n1?d.r1.stageSummary[0].qConc/n1:d.r1.stageSummary[0].qConc/n2,2.5,{ss:true,dn:80,name:(i<n1?'第一段浓水出口 ':'第二段进水口 ')+'（第'+(i+1)+'壳）'});
   }
   // 末段浓水 → 排放
   const c2first=n1;const zc=pf(c2first>=nT?nT-1:c2first).z;
-  const cStart=pf(nT-1);
+  const cStart=n2?pf(nT-1):pr(nT-1);
   const concQ=d.r1.Qc,dnC=Math.max(DNq(concQ,2.5),40),zt=.35;
   mk('R1.c','conc',[V3(cStart.x,cStart.y,cStart.z),V3(cStart.x,yh,cStart.z),V3(cStart.x,yh,zt)],concQ,2.5,{ss:true,dn:dnC,name:'一级末段浓水管',from:'RO-101 末段浓水口',to:'浓水调节阀 / CIP 回流'});
   mk('R1.c2','conc',[V3(cStart.x,yh,zt),V3(cStart.x,yh,1.35),V3(cStart.x,.32,1.35)],concQ,2.5,{ss:true,dn:dnC,name:'一级浓水排放管',from:'',to:'排水沟'});
@@ -2661,13 +2670,13 @@ function plumb(eq,d,Z){
   ins('HPS.pt','PT','HPS',0.4,'高压泵入口压力（低压保护）','bar');
   ins('R1.fpt','PT','HPD2',0.5,'一级进水压力','bar');
   /* ---- 加药点与取样 ---- */
-  ins('D1.inj','INJ','S.out',0.9+0.0,'阻垢剂注入点（静态混合）','');ins('D2.inj','INJ','S.out',1.5,'还原剂注入点','');
+  ins('D1.inj','INJ','S.out',1.7,'阻垢剂注入点（静态混合）','');ins('D2.inj','INJ','S.out',2.4,'还原剂注入点','');
   // 注意：以上 at 以 S.out 起点计，需与 D1.l/D2.l 末端对齐，见下方校正
   ins('M.sv','SV','M.out',0.9,'多介质出水取样（浊度、SDI）','');
   ins('A.sv','SV','A.out',0.9,'活性炭出水取样（余氯）','');
   ins('A.ae','AE','A.out',0.5,'余氯 / ORP 在线仪表','mg/L');
   ins('S.sv','SV','S.out',0.3,'软化出水取样（硬度）','');
-  ins('M.pt1','PT','M.in',0.9,'多介质进口压力','bar');ins('A.pt1','PT','A.in',1.0,'活性炭进口压力','bar');ins('S.pt1','PT','S.in',-0.2,'软化器进口压力','bar');
+  ins('M.pt1','PT','M.in',-0.35,'多介质进口压力','bar');ins('A.pt1','PT','A.in',-0.35,'活性炭进口压力','bar');ins('S.pt1','PT','S.in',-0.2,'软化器进口压力','bar');
   ins('CF.pt1','PT','S.out',-0.4,'保安过滤器进口压力','bar');ins('CF.pt2','PT','CF.out',0.35,'保安过滤器出口压力','bar');
   ins('RAW.fft','FT','M.in',0.5,'原水进水流量','m³/h');
   ins('CF.sv','SV','CF.out',0.25,'保安出水取样（SDI₁₅）','');
@@ -2682,12 +2691,12 @@ function plumb(eq,d,Z){
   mk('MID.dis','perm',[V3(p2d.x,p2d.y,E.P202.g.position.z),V3(p2d.x,1.9,E.P202.g.position.z),V3(p2d.x,1.9,feedJ2.z),V3(xL2,1.9,feedJ2.z),V3(xL2,yh,feedJ2.z)],d.flow.Q2,3.0,{ss:true,name:'二级高压泵出水管',from:'P-202',to:'RO-201 进水总管'});
   vlv('MID.chk','chk','MID.dis',0.45,'二级泵出口止回阀',{ss:true});vlv('MID.v','mot','MID.dis',-1.3,'二级泵出口电动慢开阀',{ss:true});
   if(m1>1)mk('R2.fh','perm',[V3(xL2,yh,zA2),V3(xL2,yh,zB2)],d.flow.Q2,3.0,{ss:true,dn:DNq(d.flow.Q2,3.0),name:'二级进水总管'});
-  for(let i=0;i<m1;i++)mk('R2.fs'+i,'perm',[V3(qf(i).x,qf(i).y,qf(i).z),V3(xL2,yh,qf(i).z)],d.flow.Q2/m1,3.0,{ss:true,dn:80,name:'二级第'+(i+1)+'壳进水支管'});
+  for(let i=0;i<m1;i++)mk('R2.fs'+i,'perm',[V3(xL2,yh,qf(i).z),V3(qf(i).x,qf(i).y,qf(i).z)],d.flow.Q2/m1,3.0,{ss:true,dn:80,name:'二级第'+(i+1)+'壳进水支管'});
   const xR2=qr(0).x;
   if(m2>0){mk('R2.is','conc',[V3(xR2,yh,qr(0).z),V3(xR2,yh,qr(mT-1).z)],d.r2.stageSummary[0].qConc,2.5,{ss:true,dn:DNq(d.r2.stageSummary[0].qConc,2.5),name:'二级段间总管'});
-    for(let i=0;i<mT;i++)mk('R2.is'+i,'conc',[V3(qr(i).x,qr(i).y,qr(i).z),V3(xR2,yh,qr(i).z)],i<m1?d.r2.stageSummary[0].qConc/m1:d.r2.stageSummary[0].qConc/m2,2.5,{ss:true,dn:80,name:'二级段间支管'})}
+    for(let i=0;i<mT;i++)mk('R2.is'+i,'conc',(i<m1?[V3(qr(i).x,qr(i).y,qr(i).z),V3(xR2,yh,qr(i).z)]:[V3(xR2,yh,qr(i).z),V3(qr(i).x,qr(i).y,qr(i).z)]),i<m1?d.r2.stageSummary[0].qConc/m1:d.r2.stageSummary[0].qConc/m2,2.5,{ss:true,dn:80,name:'二级段间支管'})}
   // 二级浓水：回流 或 排放
-  const cs2=qf(mT-1);
+  const cs2=m2?qf(mT-1):qr(mT-1);
   if(d.inp.ro2Conc=='recycle'){
     mk('REC','conc',lowerReturn(cs2,V3(5.2,ps.y,zp),jy+.12),d.flow.Q2c,2.0,{ss:true,name:'二级浓水回流管 → 一级高压泵吸入',from:'RO-201 末段浓水',to:'P-201 吸入管'});
     vlv('REC.v','mot','REC',1.1,'二级浓水回流阀（调节）',{ss:true});ins('REC.ft','FT','REC',2.2,'二级浓水回流流量','m³/h');ins('REC.ce','CE','REC',3.4,'二级浓水电导率','µS/cm');ins('REC.pi','PI','REC',1.6,'二级浓水压力','bar');
@@ -2721,11 +2730,11 @@ function plumb(eq,d,Z){
   const prodL=mods.map(m=>V3(ex+m.prod.x,m.prod.y,ez+m.prod.z));
   const t3=E.T301,t3x=t3.g.position.x,t3z=t3.g.position.z;
   mk('ED.fh','perm',[V3(fx1,0.05,ez2),V3(fx0,0.05,ez2)],d.flow.Qprod,2.0,{dn:DNq(d.flow.Qprod,2.0),name:'EDI 进水总管'});
-  mods.forEach((m,i)=>mk('ED.f'+i,'perm',[V3(ex+m.feed.x,m.feed.y,ez+m.feed.z),V3(ex+m.feed.x,0.05,ez+m.feed.z)],d.flow.Qprod/mods.length,2.0,{dn:40,name:'EDI 第'+(i+1)+'模块进水',from:'EDI 进水总管',to:'EDI-301 第'+(i+1)+'模块'}));
+  mods.forEach((m,i)=>mk('ED.f'+i,'perm',[V3(ex+m.feed.x,0.05,ez+m.feed.z),V3(ex+m.feed.x,m.feed.y,ez+m.feed.z)],d.flow.Qprod/mods.length,2.0,{dn:40,name:'EDI 第'+(i+1)+'模块进水',from:'EDI 进水总管',to:'EDI-301 第'+(i+1)+'模块'}));
   // EDI-310分开的淡水室/浓水室供水，合计仍等于RO2产水；极水由浓水室供给。[D2 Figure4 / §4.3.3]
-  const ciZ=ez+mods[0].concIn.z;
+  const ciZ=ez+.65,ciPortZ=ez+mods[0].concIn.z;
   mk('ED.cih','perm',[V3(fx1,.05,ez2),V3(fx1,.05,ciZ),V3(ex+mods[0].concIn.x,.05,ciZ)],d.flow.ediRej,2,{dn:25,name:'EDI浓水室进水总管',from:'RO-201产水三通',to:'EDI-301浓水室'});
-  mods.forEach((m,i)=>mk('ED.ci'+i,'perm',[V3(ex+m.concIn.x,.05,ciZ),V3(ex+m.concIn.x,m.concIn.y,ciZ)],d.flow.ediRej/mods.length,2,{dn:15,name:'EDI浓水室进水支管',from:'浓水室进水总管',to:'EDI-301 第'+(i+1)+'模块'}));
+  mods.forEach((m,i)=>mk('ED.ci'+i,'perm',[V3(ex+m.concIn.x,.05,ciZ),V3(ex+m.concIn.x,m.concIn.y,ciZ),V3(ex+m.concIn.x,m.concIn.y,ciPortZ)],d.flow.ediRej/mods.length,2,{dn:15,name:'EDI浓水室进水支管',from:'浓水室进水总管',to:'EDI-301 第'+(i+1)+'模块'}));
   mods.forEach((m,i)=>mk('ED.p'+i,'pure',[V3(ex+m.prod.x,m.prod.y,ez+m.prod.z),V3(ex+m.prod.x,1.8,ez+m.prod.z)],d.flow.Qprod/mods.length,2.0,{dn:40,name:'EDI 第'+(i+1)+'模块产水'}));
   mk('ED.ph','pure',[V3(fx1,1.8,ez),V3(fx0,1.8,ez)],d.flow.Qprod,2.0,{dn:DNq(d.flow.Qprod,2.0),name:'EDI 产水总管'});
   mk('ED.prod','pure',[V3(fx0,1.8,ez),V3(fx0-1.3,1.8,ez)],d.flow.Qprod,2.0,{dn:DNq(d.flow.Qprod,2.0),name:'EDI 产水主管',from:'EDI-301',to:'纯水箱'});
@@ -2760,11 +2769,11 @@ function plumb(eq,d,Z){
   const cT=E.T401,cP=E.P401,cF=E.F401;const cps=portW(cP,'suc'),cpd=portW(cP,'dis'),cfin2=portW(cF,'in'),cfo2=portW(cF,'out');
   const cz=cT.g.position.z,cx=cT.g.position.x;
   mk('CIP.suc','cip',[portW(cT,'out'),V3(cps.x+.25,.45,cz),V3(cps.x+.25,cps.y,cz),cps],P_cip(Z),1.5,{dn:80,name:'CIP 泵吸入管',from:'T-401',to:'P-401'});vlv('CIP.sv','bf','CIP.suc',0.4,'CIP 泵吸入阀');
-  mk('CIP.dis','cip',[V3(cpd.x,cpd.y,cz),V3(cpd.x,cfin2.y,cz),V3(cfin2.x,cfin2.y,cz)],P_cip(Z),2.5,{dn:80,name:'CIP 泵出水 → CIP 保安过滤器',from:'P-401',to:'F-401'});vlv('CIP.dv','ball','CIP.dis',0.4,'CIP 泵出口阀');
-  mk('CIP.s','cip',[cfo2,V3(cfo2.x+clearance,cfo2.y,cz),V3(cfo2.x+clearance,.3,cz),V3(8.2,.3,cz),V3(8.2,.3,zp),V3(8.2,2.0,zp)],P_cip(Z),2.5,{dn:80,name:'CIP 供液管 → 一级进水总管',from:'F-401',to:'RO-101 进水总管'});
+  mk('CIP.dis','cip',[cpd,V3(cpd.x,cfin2.y,cz),V3(cpd.x,cfin2.y,cz-.5),V3(cfin2.x-.35,cfin2.y,cz-.5),V3(cfin2.x-.35,cfin2.y,cz),cfin2],P_cip(Z),2.5,{dn:80,name:'CIP 泵出水 → CIP 保安过滤器',from:'P-401',to:'F-401'});vlv('CIP.dv','ball','CIP.dis',0.4,'CIP 泵出口阀');
+  mk('CIP.s','cip',[cfo2,V3(cfo2.x+clearance,cfo2.y,cz),V3(cfo2.x+clearance,.3,cz),V3(8.2,.3,cz),V3(8.2,.3,zp+1.1),V3(8.2,1.4,zp+1.1),V3(8.2,1.4,zp+.55)],P_cip(Z),2.5,{dn:80,name:'CIP 供液管 → 一级进水总管',from:'F-401',to:'RO-101 进水总管'});
   vlv('CIP.sv2','mot','CIP.s',-0.9,'CIP 供液阀');ins('CIP.pi','PI','CIP.s',0.3,'CIP 供液压力','bar');ins('CIP.ft','FT','CIP.s',0.9,'CIP 供液流量','m³/h');
-  const cstart=pf(nT-1);
-  mk('CIP.rc','cip',[V3(cstart.x,yh,zt),V3(cstart.x,.3,zt),V3(portW(cT,'top1').x,.3,zt),V3(portW(cT,'top1').x,.3,cz-cT.R-clearance),V3(portW(cT,'top1').x,cT.top,cz-cT.R-clearance),portW(cT,'top1')],P_cip(Z),2.5,{ss:true,dn:80,name:'CIP 回流管（自一级浓水侧）',from:'RO-101 浓水侧',to:'T-401'});
+  const cstart=n2?pf(nT-1):pr(nT-1),rcY=n2?.3:.12;
+  mk('CIP.rc','cip',[V3(cstart.x,yh,zt),V3(cstart.x,rcY,zt),V3(portW(cT,'top1').x,rcY,zt),V3(portW(cT,'top1').x,rcY,cz-cT.R-clearance),V3(portW(cT,'top1').x,cT.top,cz-cT.R-clearance),portW(cT,'top1')],P_cip(Z),2.5,{ss:true,dn:80,name:'CIP 回流管（自一级浓水侧）',from:'RO-101 浓水侧',to:'T-401'});
   vlv('CIP.rcv','mot','CIP.rc',0.9,'CIP 浓水侧回流阀',{ss:true});
   mk('CIP.rp','cip',sideBranch(V3(pEnd,.95,zPm),portW(cT,'return').add(V3(clearance,0,0)),portW(cT,'return').x+clearance,.3).concat([portW(cT,'return')]),P_cip(Z)*0.5,2.5,{dn:65,name:'CIP 产水回流管（循环清洗时产水回 CIP 箱）',from:'RO-101 产水',to:'T-401'});
   vlv('CIP.rpv','mot','CIP.rp',0.5,'CIP 产水回流阀');
@@ -2789,10 +2798,29 @@ function plumb(eq,d,Z){
   if(d.inp.ediConc==='mid')endpoint('ED.cr',1,E.T201,'top1');
   filt.forEach(([u,e])=>{endpoint(u+'.vi',1,e,'top');endpoint(u+'.bot',0,e,'bot')});
   [E.R101,E.R201].forEach((e,j)=>{const pre=j?'R2':'R1',n=e.skid.nT,first=e.skid.nvs[0];for(let i=0;i<n;i++){
-    if(i<first)endpoint(pre+'.fs'+i,0,e,'v'+i+'L');if(e.skid.nvs[1])endpoint(pre+'.is'+i,0,e,'v'+i+'R');endpoint(pre+'.p'+i,0,e,'v'+i+'pR')}
-    endpoint(j?'REC':'R1.c',0,e,'v'+(n-1)+'L')});
-  mods.forEach((m,i)=>{['feed','prod','conc','concIn','elec'].forEach((key,j)=>{const p=PIPES['ED.'+['f','p','c','ci','e'][j]+i];p.connections=[{end:j===3?1:0,eq:edi.tag,port:key+i,point:m[key].clone().add(edi.g.position)}]})});
-  /* ---- 标签：仪表/阀门 ---- */
+    if(i<first)endpoint(pre+'.fs'+i,1,e,'v'+i+'L');if(e.skid.nvs[1])endpoint(pre+'.is'+i,i<first?0:1,e,'v'+i+'R');endpoint(pre+'.p'+i,0,e,'v'+i+'pR')}
+    endpoint(j?'REC':'R1.c',0,e,'v'+(n-1)+(e.skid.nvs[1]?'L':'R'))});
+  mods.forEach((m,i)=>{['feed','prod','conc','concIn','elec'].forEach((key,j)=>{const p=PIPES['ED.'+['f','p','c','ci','e'][j]+i];p.connections=[{end:j===0||j===3?1:0,eq:edi.tag,port:key+i,point:m[key].clone().add(edi.g.position)}]})});
+  // 这些支管已改为上游→设备；原步骤的rev契约保留，由显示适配一次校正。
+  Object.values(PIPES).forEach(p=>{if(/^(R[12]\.fs\d+|ED\.f\d+)$/.test(p.id)||/^R[12]\.is\d+$/.test(p.id)&&p.connections&&p.connections[0].end===1)p.flowReoriented=true});
+  alignPipeFlow();mergeStaticParts(drains,new Set());
+  /* ---- 近距进/出提示：复用仪表标签开关、样式与避让，不新增每帧工作 ---- */
+  const portLabel=(tag,text,id,end)=>{const p=PIPES[id],q=pipeAt(p,end?Math.max(0,p.len-.22):Math.min(.22,p.len)).p;
+    const l=addLabel({html:text,pos:q.clone().add(V3(0,.15,0)),tag:tag,cls:'i',kind:'inst',maxD:8});
+    l.portHint={eq:tag,text:text,pipe:id,end:end};};
+  [['T-101','进水','RAW.mk',1],['T-101','出水','RAW.suc',0],['P-101','吸入','RAW.suc',1],['P-101','出口','M.in',0],
+   ['P-102','吸入','BW.suc',1],['P-102','出口','BW.h0',0],
+   ['F-101','进水','M.vi',1],['F-101','出水','M.bot',0],['F-102','进水','A.vi',1],['F-102','出水','A.bot',0],
+   ['S-101','进水','S.vi',1],['S-101','出水','S.bot',0],['B-101','出水','S.br',0],
+   ['D-101','出口','D1.l',0],['D-102','出口','D2.l',0],['F-103','进水','S.out',1],['F-103','出水','CF.out',0],
+   ['P-201','吸入','HPS',1],['P-201','出口','HPD',0],['RO-101','进水','R1.fs0',1],['RO-101','产水','R1.p0',0],['RO-101','浓水','R1.c',0],
+   ['T-201','进水','R1.pm2',1],['T-201','出水','MID.suc',0],['D-103','出口','D3.l',0],['P-202','吸入','MID.suc',1],['P-202','出口','MID.dis',0],
+   ['RO-201','进水','R2.fs0',1],['RO-201','产水','R2.p0',0],['RO-201','浓水','REC',0],
+   ['EDI-301','进水','ED.f'+(mods.length-1),1],['EDI-301','产水','ED.p'+(mods.length-1),0],
+   ['EDI-301','浓水','ED.c'+(mods.length-1),0],['EDI-301','极水','ED.e'+(mods.length-1),0],
+   ['T-301','进水','ED.prod2',1],['T-301','出水','PW.out',0],
+   ['T-401','进水','CIP.makeup',1],['T-401','出水','CIP.suc',0],['P-401','吸入','CIP.suc',1],['P-401','出口','CIP.dis',0],
+   ['F-401','进水','CIP.dis',1],['F-401','出水','CIP.s',0]].forEach(a=>portLabel(...a));
 }
 function P_bw(Z){return Z.pump.bw.Q}
 function P_cip(Z){return Z.pump.cip.Q}
@@ -3108,7 +3136,7 @@ function buildJourney(d,Z){
   // RO1
   const e1=EQ['RO-101'],sk1=e1.skid;const hz=PIPES['R1.fh']?PIPES['R1.fh'].poly:null;
   if(PIPES['R1.fh']){const fh=PIPES['R1.fh'].poly,mid=fh[Math.floor(fh.length/2)];pipe(lineN(mid,fh[0],6),'R1.fh')}
-  pipe(pls('R1.fs0',true),'R1.fs0');
+  pipe(pls('R1.fs0'),'R1.fs0');
   stationElement(S[7]);const j1=S[7].jm;const rp1=roPath('RO-101',0,0,0,0,0,0,sk1.ne,j1);
   inEq(7,rp1.f,'feed',7);inEq(7,rp1.c,'cross',2.4);inEq(7,rp1.t,'perm',6.6);
   S[7].jm=j1;
@@ -3128,7 +3156,7 @@ function buildJourney(d,Z){
   inEq(10,pumpPts('P-202'));
   pipe(pls('MID.dis'),'MID.dis');
   if(PIPES['R2.fh']){const fh=PIPES['R2.fh'].poly,mid=fh[Math.floor(fh.length/2)];pipe(lineN(mid,fh[0],6),'R2.fh')}
-  pipe(pls('R2.fs0',true),'R2.fs0');
+  pipe(pls('R2.fs0'),'R2.fs0');
   const e2=EQ['RO-201'],sk2=e2.skid;stationElement(S[11]);const j2=S[11].jm;const rp2=roPath('RO-201',0,0,0,0,0,0,sk2.ne,j2);
   inEq(11,rp2.f,'feed',6);inEq(11,rp2.c,'cross',2.4);inEq(11,rp2.t,'perm',7.6);S[11].jm=j2;
   pipe(pls('R2.p0'),'R2.p0');
@@ -3136,7 +3164,7 @@ function buildJourney(d,Z){
   ['R2.pm','R2.pm2'].forEach(id=>pipe(pls(id),id));
   // EDI：最后一个模块（其进水口位于进水总管起点）
   const ed=EQ['EDI-301'],nm=ed.mods.length-1,mdl=ed.mods[nm];
-  pipe(pls('ED.f'+nm,true),'ED.f'+nm);
+  pipe(pls('ED.f'+nm),'ED.f'+nm);
   const ef=wpt(ed,mdl.feed),epr=wpt(ed,mdl.prod);const cx=ef.x,zc=ed.g.position.z;
   const ep=[ef,V3(cx,0.36,zc)];for(let k=0;k<=12;k++){const u=k/12;ep.push(V3(cx+0.09*Math.sin(k*1.7),0.4+u*1.1,zc+(-0.16+0.32*((k*0.37)%1))*Math.sin(Math.PI*u)))}ep.push(V3(cx,1.5,zc));ep.push(epr);
   inEq(12,ep);
