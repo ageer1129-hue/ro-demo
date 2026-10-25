@@ -1640,8 +1640,9 @@ const MEDIA={
   conc:{n:'浓水 / 回流',c:0xf59e0b},
   chem:{n:'加药（阻垢剂、还原剂、NaOH）',c:0xe3d51d},
   cip:{n:'CIP 清洗液',c:0xa78bfa},
-  drain:{n:'反洗 / 冲洗排水',c:0x9a7b66},
-  brine:{n:'盐水（再生）',c:0xe879f9}
+  drain:{n:'冲洗 / 正洗排水',c:0x9a7b66},
+  brine:{n:'盐水（再生）',c:0xe879f9},
+  bw:{n:'反洗（反洗泵 P-102 供水与上排）',c:0x22c55e}
 };
 function cylAxis(p1,p2,r1,mat,seg,r2){
   const d=p2.clone().sub(p1),L=d.length();const g=new THREE.CylinderGeometry(r2===undefined?r1:r2,r1,L,seg||16);
@@ -2172,7 +2173,7 @@ window.__modelLOD=function(){return MODEL_DETAILS.items.map(i=>({id:i.owner.tag|
 
 /* 外观动画只读：不调用求解器、不设置阀路/模式/模拟值。几何只在设备重建时生成。 */
 const ANIM={paused:false,pipes:[],pumps:[],gauges:[],valves:[],mesh:null,texture:null,data:null,width:1,reference:null};
-const FLOW_COLORS={raw:0xe0f5ff,perm:0xb6f5ff,pure:0xe0fcff,conc:0xffe1c9,drain:0xffeade,cip:0xe5d8ff,brine:0xffddff,chem:0xe0f5d3};
+const FLOW_COLORS={raw:0xe0f5ff,perm:0xb6f5ff,pure:0xe0fcff,conc:0xffe1c9,drain:0xffeade,cip:0xe5d8ff,brine:0xffddff,chem:0xe0f5d3,bw:0xd6ffe4};
 let filterScreen=null;const animDialMaterials=new Map();
 function addFilterControl(g,R,top){
  // 始终显示，整体收在原罐体外包络和顶部0.2m接管范围内；原流程接管端点不变。
@@ -2285,7 +2286,7 @@ function tickPlantAnimation(dt){
 }
 function syncFlowAppearance(){
  if(!ANIM.data)return;const data=ANIM.data,w=ANIM.width;
- ANIM.pipes.forEach((a,i)=>{const p=a.pipe,n=Math.round(((a.offset%1+1)%1)*65535),k=i*4,c=(p.opsAffected?p.flow.material.color:null),hex=/^(REC|ED\.(cr|ci)|CIP\.)/.test(p.id)&&p.med!=='drain'?FLOW_COLORS.cip:(FLOW_COLORS[p.med]||FLOW_COLORS.raw);
+ ANIM.pipes.forEach((a,i)=>{const p=a.pipe,n=Math.round(((a.offset%1+1)%1)*65535),k=i*4,c=(p.opsAffected&&!p.bw?p.flow.material.color:null),hex=p.bw?FLOW_COLORS.bw:/^(REC|ED\.(cr|ci)|CIP\.)/.test(p.id)&&p.med!=='drain'?FLOW_COLORS.cip:(FLOW_COLORS[p.med]||FLOW_COLORS.raw);
   data[k]=n>>>8;data[k+1]=n&255;data[k+2]=a.visible?255:0;data[k+3]=Math.round(255*(.65+.35*(p.fa===undefined?1:p.fa)));
   const j=(w+i)*4;data[j]=c?Math.round(c.r*255):hex>>>16;data[j+1]=c?Math.round(c.g*255):(hex>>>8)&255;data[j+2]=c?Math.round(c.b*255):hex&255;data[j+3]=p.dir>0?255:0;
  });ANIM.texture.needsUpdate=true;
@@ -2322,15 +2323,15 @@ function compactTube(g){
 function addPipe(o){
   const od=ODof(o.dn,o.ss),r=od/2;const rb=Math.max(od*1.6,0.1),path=roundedPath(o.pts,rb),renderPath=roundedPath(o.pts,rb,true);
   const len=path.getLength();const segs=Math.max(6,Math.ceil(len*10));
-  const col=MEDIA[o.med].c;
+  const col=MEDIA[o.svc==='bw'?'bw':o.med].c;
   const mat=MAT(col,o.ss?0.55:0.05,o.ss?0.35:0.5);
   const tube=new THREE.Mesh(compactTube(new THREE.TubeGeometry(renderPath,segs,r,12,false)),mat);tube.userData.pipe=o.id;
   const dt=DASH.clone();dt.needsUpdate=true;dt.repeat.set(Math.max(1,len/0.28),1);
   const fm=new THREE.MeshBasicMaterial({map:dt,color:new THREE.Color(col).lerp(new THREE.Color(0xffffff),0.55),transparent:true,depthWrite:false,opacity:0.95});
-  const flow=new THREE.Mesh(compactTube(new THREE.TubeGeometry(renderPath,segs,r*1.095,8,false)),fm);flow.visible=false;
+  const flow=new THREE.Mesh(compactTube(new THREE.TubeGeometry(renderPath,segs,r*1.095,8,false)),fm);flow.visible=false;flow.userData.bw=o.svc==='bw';
   const g=new THREE.Group();g.add(tube);g.add(flow);PADD(g);
   const poly=path.getSpacedPoints(Math.max(4,Math.ceil(len/0.04)));const cum=[0];for(let i=1;i<poly.length;i++)cum.push(cum[i-1]+poly[i].distanceTo(poly[i-1]));
-  const p={pts:o.pts.map(q=>q.clone()),id:o.id,med:o.med,dn:o.dn,ss:!!o.ss,Q:o.Q||0,v:o.Q?RO.velAt(o.Q,o.dn):0,len:cum[cum.length-1],poly:poly,cum:cum,tube:tube,flow:flow,dt:dt,dir:1,on:false,valves:[],insts:[],name:o.name||o.id,od:od,from:o.from||'',to:o.to||''};
+  const p={pts:o.pts.map(q=>q.clone()),id:o.id,med:o.med,bw:o.svc==='bw',dn:o.dn,ss:!!o.ss,Q:o.Q||0,v:o.Q?RO.velAt(o.Q,o.dn):0,len:cum[cum.length-1],poly:poly,cum:cum,tube:tube,flow:flow,dt:dt,dir:1,on:false,valves:[],insts:[],name:o.name||o.id,od:od,from:o.from||'',to:o.to||''};
   PIPES[o.id]=p;return p;
 }
 function pipeAt(p,s){ // 沿管路弧长 s 处的位置与切线
@@ -2520,7 +2521,7 @@ function DNq(Q,v){return RO.dnFor(Math.max(Q,0.05),v).dn}
 function plumb(eq,d,Z){
   TAGC={};const F=d.flow,A=RO.ASSUME,Qr=F.Qfresh;
   const z1=-5.7,zf=-5.7,jy=0.22;
-  const mk=(id,med,pts,Q,vm,o)=>{o=o||{};const dn=o.dn||DNq(Q,vm||2.0);return addPipe({id:id,med:med,dn:dn,pts:pts,Q:Q,ss:o.ss,name:o.name,from:o.from,to:o.to})};
+  const mk=(id,med,pts,Q,vm,o)=>{o=o||{};const dn=o.dn||DNq(Q,vm||2.0);return addPipe({id:id,med:med,dn:dn,pts:pts,Q:Q,ss:o.ss,svc:o.svc,name:o.name,from:o.from,to:o.to})};
   const vlv=(id,type,pipe,at,name,o)=>{o=o||{};const v=addValve({id:id,type:type,pipe:pipe,at:at,name:name,ss:o.ss});v.tag=nextTag('V',100);addLabel({html:v.tag,pos:v.pos,cls:'i v',kind:'inst',maxD:9});return v};
   const ins=(id,type,pipe,at,name,unit,o)=>{const i=addInst(Object.assign({id:id,type:type,pipe:pipe,at:at,name:name,unit:unit},o||{}));
     const pre={PI:'PI',PT:'PT',FT:'FT',CE:'CE',AE:'AE',SV:'SV',INJ:'INJ',EJ:'EJ'}[type];i.tag=nextTag(pre,100);addLabel({html:i.tag,pos:i.pos,cls:'i',kind:'inst',maxD:8});return i};
@@ -2556,7 +2557,7 @@ function plumb(eq,d,Z){
   const BWq={M:Z.mmf.bw*Math.PI/4*Z.mmf.D*Z.mmf.D,A:Z.acf.bw*Math.PI/4*Z.acf.D*Z.acf.D,S:Z.sof.bw*Math.PI/4*Z.sof.D*Z.sof.D};
   // 反洗泵
   const bwT=portW(t1,'bw');const pbs=portW(E.P102,'suc'),pbd=portW(E.P102,'dis');
-  mk('BW.suc','raw',[bwT,V3(bwT.x,.5,pbs.z),V3(pbs.x-.6,.5,pbs.z),V3(pbs.x-.6,pbs.y,pbs.z),pbs],P_bw(Z),2.0,{name:'反洗泵吸入管',from:'T-101',to:'P-102'});
+  mk('BW.suc','raw',[bwT,V3(bwT.x,.5,pbs.z),V3(pbs.x-.6,.5,pbs.z),V3(pbs.x-.6,pbs.y,pbs.z),pbs],P_bw(Z),2.0,{svc:'bw',name:'反洗泵吸入管',from:'T-101',to:'P-102'});
   vlv('BW.sv','bf','BW.suc',-0.7,'反洗泵吸入阀');
   const bwy=.70,bwz=z1+.8;
   filt.forEach(([u,e,tg],i)=>{
@@ -2565,7 +2566,7 @@ function plumb(eq,d,Z){
     // 进口管
     if(u=='M')mk('M.in','raw',[pd,V3(pd.x,yt,pd.z),V3(xi,yt,pd.z),V3(xi,yt,z1)],Qr,2.0,{dn:dn,name:'原水泵出水 → 多介质进水',from:'P-101',to:'F-101'});
     mk(u+'.vi','raw',[V3(xi,yt,z1),V3(x,yt,z1),portW(e,'top')],Qr,2.0,{dn:dn,name:tg+' 进水支管',from:'进水管',to:tg});
-    mk(u+'.bo','drain',[V3(x-.35,yt,z1),V3(x-.35,yt,z1+.65),V3(x-.35,.05,z1+.65)],BWq[u],2.5,{dn:dn,name:tg+' 反洗排水',from:tg,to:'排水沟'});
+    mk(u+'.bo','drain',[V3(x-.35,yt,z1),V3(x-.35,yt,z1+.65),V3(x-.35,.05,z1+.65)],BWq[u],2.5,{svc:'bw',dn:dn,name:tg+' 反洗排水',from:tg,to:'排水沟'});
     const bot=e.ports.bot.clone().add(e.g.position);
     mk(u+'.bot','raw',[bot,V3(x,jy,bot.z),V3(xo,jy,bot.z),V3(xo,jy,z1)],Qr,2.0,{dn:dn,name:tg+' 底部汇管',from:tg,to:'出水/反洗阀组'});
     // 出口管
@@ -2578,7 +2579,7 @@ function plumb(eq,d,Z){
       mk('S.out','raw',[V3(exitX(e),jy,z1),V3(cfin.x-clearance,jy,z1),V3(cfin.x-clearance,jy,cfin.z),V3(cfin.x-clearance,cfin.y,cfin.z),cfin],Qr,2.0,{dn:Math.max(DNq(Qr,2.0),65),name:'软化器出水 → 保安过滤器',from:'S-101',to:'F-103'});
     }
     // 反洗进水（自反洗总管）
-    mk(u+'.bi','raw',[V3(x,bwy,bwz),V3(x,bwy,z1),V3(xo,bwy,z1),V3(xo,jy,z1)],BWq[u],2.5,{dn:dn,name:tg+' 反洗进水',from:'反洗总管',to:tg});
+    mk(u+'.bi','raw',[V3(x,bwy,bwz),V3(x,bwy,z1),V3(xo,bwy,z1),V3(xo,jy,z1)],BWq[u],2.5,{svc:'bw',dn:dn,name:tg+' 反洗进水',from:'反洗总管',to:tg});
     // 正洗排水
     mk(u+'.rs','drain',[V3(xo,jy,z1-.4),V3(xo+.5,jy,z1-.4),V3(xo+.5,0.05,z1-.4)],BWq[u]*0.6,3.0,{dn:Math.min(dn,100),name:tg+' 正洗 / 排水',from:tg,to:'地漏'});
     fdrain(x-.35,z1+.65);fdrain(xo+.5,z1-.4);
@@ -2591,9 +2592,9 @@ function plumb(eq,d,Z){
   vlv('M.vi_v','mot','M.in',-0.7,'F-101 进水阀');vlv('A.vi_v','mot','M.out',-0.7,'F-102 进水阀');vlv('S.vi_v','mot','A.out',-0.7,'S-101 进水阀');
   // 反洗总管（分三段）
   const xs=filt.map(f=>f[1].g.position.x);
-  mk('BW.h0','raw',[pbd,V3(pbd.x,bwy,pbd.z),V3(pbd.x,bwy,bwz),V3(xs[0],bwy,bwz)],P_bw(Z),2.8,{dn:100,name:'反洗总管（泵 → F-101）',from:'P-102',to:'F-101'});
-  mk('BW.h1','raw',[V3(xs[0],bwy,bwz),V3(xs[1],bwy,bwz)],BWq.A,2.8,{dn:100,name:'反洗总管（→ F-102）',from:'',to:'F-102'});
-  mk('BW.h2','raw',[V3(xs[1],bwy,bwz),V3(xs[2],bwy,bwz)],BWq.S,2.8,{dn:Math.max(DNq(BWq.S,2.8),65),name:'反洗总管（→ S-101）',from:'',to:'S-101'});
+  mk('BW.h0','raw',[pbd,V3(pbd.x,bwy,pbd.z),V3(pbd.x,bwy,bwz),V3(xs[0],bwy,bwz)],P_bw(Z),2.8,{svc:'bw',dn:100,name:'反洗总管（泵 → F-101）',from:'P-102',to:'F-101'});
+  mk('BW.h1','raw',[V3(xs[0],bwy,bwz),V3(xs[1],bwy,bwz)],BWq.A,2.8,{svc:'bw',dn:100,name:'反洗总管（→ F-102）',from:'',to:'F-102'});
+  mk('BW.h2','raw',[V3(xs[1],bwy,bwz),V3(xs[2],bwy,bwz)],BWq.S,2.8,{svc:'bw',dn:Math.max(DNq(BWq.S,2.8),65),name:'反洗总管（→ S-101）',from:'',to:'S-101'});
   vlv('BW.pv','bf','BW.h0',0.35,'反洗泵出口阀');
   // 软化器：盐水再生管（经喷射器）
   const bt=E.B101,btx=bt.g.position.x,btz=bt.g.position.z;
@@ -3525,7 +3526,7 @@ function eqDims(e){
   return r;
 }
 function nearPipes(e){const b=new THREE.Box3().setFromObject(e.g);b.expandByScalar(0.55);const r=[];Object.keys(PIPES).forEach(id=>{const p=PIPES[id];if(p.id!=id)return;const a=p.poly[0],z=p.poly[p.poly.length-1];if(b.containsPoint(a)||b.containsPoint(z))r.push(p)});return r}
-function pipeRow(p){return '<tr><td>'+p.name+'</td><td>'+MEDIA[p.med].n.split(' ')[0]+'</td><td class="n">DN'+p.dn+'</td><td class="n">'+(p.Q?FN(p.Q,2):'—')+'</td><td class="n">'+(p.v?FN(p.v,2):'—')+'</td></tr>'}
+function pipeRow(p){return '<tr><td>'+p.name+'</td><td>'+MEDIA[p.bw?'bw':p.med].n.split(' ')[0]+'</td><td class="n">DN'+p.dn+'</td><td class="n">'+(p.Q?FN(p.Q,2):'—')+'</td><td class="n">'+(p.v?FN(p.v,2):'—')+'</td></tr>'}
 function renderEq(){
   const sel=UI.sel;let h='';
   if(sel&&EQ[sel]){const e=EQ[sel];const ps=nearPipes(e);const b=new THREE.Box3().setFromObject(e.g);b.expandByScalar(1.0);
@@ -3535,7 +3536,7 @@ function renderEq(){
      +'<h4>邻近阀门</h4><div>'+(vs.map(v=>'<span class="tg2 '+(v.open?'o':'c')+'" data-act="vfocus" data-v="'+v.id+'" title="'+v.name+'">'+v.tag+' '+v.name+'</span>').join('')||'—')+'</div>'
      +'<h4>邻近仪表 / 取样 / 加药点</h4><div>'+(is.map(v=>'<span class="tg2" title="'+v.name+'">'+v.tag+' '+v.name+'</span>').join('')||'—')+'</div>'
      +'<div class="row"><button data-act="eqcut">剖视 / 还原该设备</button><button data-act="eqfocus">镜头对准</button><button data-act="eqclear">返回设备清单</button></div>';
-  }else if(UI.selPipe&&PIPES[UI.selPipe]){const p=PIPES[UI.selPipe];h+='<h3>管段：'+p.name+'</h3><table>'+[['介质',MEDIA[p.med].n],['公称直径','DN'+p.dn+'（'+(p.ss?'不锈钢 外径 ':'UPVC 外径 ')+FN(p.od*1000,1)+' mm）'],['设计流量',p.Q?FN(p.Q,2)+' m³/h':'—'],['流速',p.v?FN(p.v,2)+' m/s':'—'],['长度',FN(p.len,1)+' m'],['起 → 止',(p.from||'—')+' → '+(p.to||'—')],['阀门',p.valves.map(i=>VALVES[i].tag+' '+VALVES[i].name).join('；')||'—'],['仪表',p.insts.map(i=>INSTS[i].tag+' '+INSTS[i].name).join('；')||'—']].map(r=>'<tr><th>'+r[0]+'</th><td>'+r[1]+'</td></tr>').join('')+'</table><div class="row"><button data-act="eqclear">返回设备清单</button></div>'}
+  }else if(UI.selPipe&&PIPES[UI.selPipe]){const p=PIPES[UI.selPipe];h+='<h3>管段：'+p.name+'</h3><table>'+[['介质',MEDIA[p.bw?'bw':p.med].n],['公称直径','DN'+p.dn+'（'+(p.ss?'不锈钢 外径 ':'UPVC 外径 ')+FN(p.od*1000,1)+' mm）'],['设计流量',p.Q?FN(p.Q,2)+' m³/h':'—'],['流速',p.v?FN(p.v,2)+' m/s':'—'],['长度',FN(p.len,1)+' m'],['起 → 止',(p.from||'—')+' → '+(p.to||'—')],['阀门',p.valves.map(i=>VALVES[i].tag+' '+VALVES[i].name).join('；')||'—'],['仪表',p.insts.map(i=>INSTS[i].tag+' '+INSTS[i].name).join('；')||'—']].map(r=>'<tr><th>'+r[0]+'</th><td>'+r[1]+'</td></tr>').join('')+'</table><div class="row"><button data-act="eqclear">返回设备清单</button></div>'}
   else{
     h+='<h3>设备清单与尺寸（点击行或三维中的设备查看详情）</h3><table><tr><th>位号</th><th>名称</th><th>主要尺寸</th></tr>'+Object.keys(EQ).map(k=>{const e=EQ[k];const d=eqDims(e);return '<tr style="cursor:pointer" data-act="eqsel" data-k="'+k+'"><td><b>'+e.tag+'</b></td><td>'+e.name+'</td><td>'+(d[0]?d[0][1]:'')+(d[1]?'；'+d[1][1]:'')+'</td></tr>'}).join('')+'</table>'
     +'<h3>主要管路（DN、流量、流速）</h3><table><tr><th>管段</th><th>介质</th><th class="n">口径</th><th class="n">m³/h</th><th class="n">m/s</th></tr>'+['RAW.suc','M.in','S.out','HPS','HPD','R1.fh','R1.c2','R1.pm','MID.suc','MID.dis','R2.pm2','REC','ED.prod2','PW.out','BW.h0','CIP.s','LP'].filter(i=>PIPES[i]).map(i=>pipeRow(PIPES[i])).join('')+'</table>'
@@ -3953,7 +3954,7 @@ function dimMobileMaterials(key){
  Object.keys(EQ).forEach(k=>{if(k!==key)collect(EQ[k].g)});
  const seen=new Set();Object.keys(PIPES).forEach(k=>{const p=PIPES[k];if(seen.has(p))return;seen.add(p);objects.add(p.tube);objects.add(p.flow);SHEET.pipes.push({p:p,fa:p.fa,last:p._fa})});
  Object.keys(VALVES).forEach(k=>collect(VALVES[k].g));Object.keys(INSTS).forEach(k=>collect(INSTS[k].g));
- objects.forEach(o=>{const original=o.material;SHEET.materials.set(o,original);const clone=m=>{const c=m.clone();c.transparent=true;c.opacity=m.opacity*.16;c.depthWrite=false;if(c.color)c.color.lerp(new THREE.Color(0x8999aa),.5);if(c.emissive)c.emissive.multiplyScalar(.15);return c};o.material=Array.isArray(original)?original.map(clone):clone(original)});
+ objects.forEach(o=>{const original=o.material;SHEET.materials.set(o,original);const clone=m=>{const c=m.clone();c.transparent=true;c.opacity=m.opacity*.16;c.depthWrite=false;if(c.color&&!(o.userData.bw||(o.userData.pipe&&PIPES[o.userData.pipe].bw)))c.color.lerp(new THREE.Color(0x8999aa),.5);if(c.emissive)c.emissive.multiplyScalar(.15);return c};o.material=Array.isArray(original)?original.map(clone):clone(original)});
 }
 function updateMobileView(){
  if(!mobileLayout()){camera.clearViewOffset();return}
@@ -4094,10 +4095,10 @@ function pipeStream(p){const id=p.id;
  if(id==='S.out'||id==='S.bot')return D.s3;
  if(id==='A.out'||id==='A.bot'||id==='S.vi')return D.s2;
  if(id==='M.out'||id==='M.bot'||id==='A.vi')return D.s1;
- // 反洗进水来自原水；排出物污染程度没有额外建模，用该股进水的已知水质并按排水类型灰化。
+ // 反洗进水来自原水；排出物污染程度没有额外建模，用该股进水的已知水质并保留水质数值；反洗专用管按服务色显示。
  return D.raw;
 }
-function refreshWaterQuality(){animatedPipes.forEach(p=>{const s=pipeStream(p);if(!s){p.quality=null;return}const v=RO.props(s),waste=p.med==='conc'||p.med==='drain';qualityTint(v.EC,qualityColor);if(waste)qualityColor.copy(qualityGray);p.tube.material.color.copy(qualityColor).convertSRGBToLinear();p.tube.material.envMapIntensity=.12;p.tube.material.metalness=.02;p.tube.material.roughness=.75;p.tube.material.emissive.copy(p.tube.material.color);p.tube.material.emissiveIntensity=.18;p.flow.material.color.copy(qualityColor);p.quality={EC:v.EC,TDS:v.TDS,waste:waste,source:'推断',stream:s};});
+function refreshWaterQuality(){animatedPipes.forEach(p=>{const s=pipeStream(p);if(!s){p.quality=null;return}const v=RO.props(s),waste=p.med==='conc'||p.med==='drain';qualityTint(v.EC,qualityColor);if(waste)qualityColor.copy(qualityGray);if(p.bw)qualityColor.setHex(MEDIA.bw.c);p.tube.material.color.copy(qualityColor).convertSRGBToLinear();p.tube.material.envMapIntensity=.12;p.tube.material.metalness=.02;p.tube.material.roughness=.75;p.tube.material.emissive.copy(p.tube.material.color);p.tube.material.emissiveIntensity=.18;p.flow.material.color.copy(qualityColor);p.quality={EC:v.EC,TDS:v.TDS,waste:waste,source:'推断',stream:s};});
  const swatches=el('lg').querySelectorAll('span>i');['RAW.mk','R1.pm','ED.prod','REC'].forEach((id,i)=>{if(swatches[i])swatches[i].style.background='#'+PIPES[id].tube.material.color.getHexString()});if(swatches[6])swatches[6].style.background='#'+PIPES['ED.pd'].tube.material.color.getHexString();
 }
 const waterLegend=document.createElement('div');waterLegend.id='waterLegend';waterLegend.innerHTML='<span class="waterScale"></span><span>原水 → 纯水</span><i></i><span>浓水 / 排水</span><small>推断 · 电导率映色</small>';stEl.append(waterLegend);
@@ -4279,7 +4280,7 @@ function opsVisual(){
  if(OPS.kind==='dose')on=/^(D1\.|CF\.|HP|R1\.f)/.test(p.id);
  if(OPS.kind==='cip')on=/^(CIP\.|R1\.|R2\.)/.test(p.id)&&OPS.elapsed<40;
  if(OPS.kind==='shock'){let stage=/^(PW)/.test(p.id)?5:/^ED\./.test(p.id)?4:/^(R2\.|MID)/.test(p.id)?3:/^(R1\.|HP|REC)/.test(p.id)?2:/^(RAW)/.test(p.id)?0:1;on=stage<=OPS.stage&&p.quality&&!p.quality.waste}
- p.opsAffected=on;const col=OPS.kind==='cip'?0x42cfc4:0xf16e74;
+ p.opsAffected=on;const col=p.bw?MEDIA.bw.c:OPS.kind==='cip'?0x42cfc4:0xf16e74;
  if(on){p.tube.material.color.setHex(col).convertSRGBToLinear();p.flow.material.color.setHex(col);p.tube.material.emissive.copy(p.tube.material.color)}else{p.tube.material.color.copy(p.opsColor);p.flow.material.color.copy(p.opsFlow);p.tube.material.emissive.copy(p.opsEm)}
  });const visualKey=OPS.kind+'|'+OPS.stage+'|'+(OPS.kind==='cip'&&OPS.elapsed>=40);if(visualKey!==OPS.visualKey){OPS.visualKey=visualKey;updateLabels();wakeRender()}
 }
@@ -4511,7 +4512,7 @@ renderCompare=function(){const s=SIM.get();compareDialog.innerHTML='<div class="
 let productFlushActive=false;const sourceStep=applyStep;applyStep=function(st){sourceStep(st);productFlushActive=st.flow.indexOf('CIP.flushDrain')>=0;if(window.publicScalingReady)refreshWaterQuality()};
 const oldPipeStream=pipeStream;pipeStream=function(p){if(/^R1\.is/.test(p.id))return D.feed1;if(/^R2\.is/.test(p.id))return D.feed2;if(/^R1\.p[0-9]+$/.test(p.id))return D.r1.perm;if(/^R2\.p[0-9]+$/.test(p.id))return D.r2.perm;if(p.id==='CIP.makeup'||(productFlushActive&&['CIP.suc','CIP.dis','CIP.s','LP2','HPD2'].indexOf(p.id)>=0))return D.r1.perm;if(/^ED\.ci/.test(p.id))return D.r2.perm;if(/^ED\.e/.test(p.id))return D.edi.rej;return oldPipeStream(p)};
 function simPipeKey(p){const st=pipeStream(p);const pairs=[[D.raw,'raw'],[D.s1,'mmf'],[D.s2,'acf'],[D.s3,'sof'],[D.s4,'cf'],[D.feed1,'feed1'],[D.r1.perm,'perm1'],[D.mid,'mid'],[D.feed2,'feed2'],[D.r2.perm,'perm2'],[D.edi.prod,'ediProd'],[D.r1.conc,'conc1'],[D.r2.conc,'conc2'],[D.edi.rej,'ediRej']];const a=pairs.find(a=>a[0]===st);return a?a[1]:null}
-const oldQuality=refreshWaterQuality;refreshWaterQuality=function(){oldQuality();const s=SIM.get();animatedPipes.forEach(p=>{const k=simPipeKey(p);if(!p.quality||!k)return;const v=s.streams[k];p.quality.EC=v.EC;p.quality.TDS=v.TDS;p.quality.source=SIM.note;p.quality.simKey=k;qualityTint(v.EC,qualityColor);if(p.quality.waste)qualityColor.copy(qualityGray);p.tube.material.color.copy(qualityColor).convertSRGBToLinear();p.tube.material.emissive.copy(p.tube.material.color);p.flow.material.color.copy(qualityColor)});};
+const oldQuality=refreshWaterQuality;refreshWaterQuality=function(){oldQuality();const s=SIM.get();animatedPipes.forEach(p=>{const k=simPipeKey(p);if(!p.quality||!k)return;const v=s.streams[k];p.quality.EC=v.EC;p.quality.TDS=v.TDS;p.quality.source=SIM.note;p.quality.simKey=k;qualityTint(v.EC,qualityColor);if(p.quality.waste)qualityColor.copy(qualityGray);if(p.bw)qualityColor.setHex(MEDIA.bw.c);p.tube.material.color.copy(qualityColor).convertSRGBToLinear();p.tube.material.emissive.copy(p.tube.material.color);p.flow.material.color.copy(qualityColor)});};
 
 const publicStyle=document.createElement('style');publicStyle.textContent='.publicTable{width:100%;font-size:12px;border-collapse:collapse}.publicTable th,.publicTable td{border-bottom:1px solid var(--bd);padding:7px 4px;text-align:left;vertical-align:top}.publicTable th{width:32%;font-weight:500}.publicSource,.simBadge{font-size:9px;color:var(--mu)}.simBadge{display:inline-block}#caseNotice{height:56px;min-height:56px;max-height:56px;overflow:auto;box-sizing:border-box}#caseNotice b,#caseNotice span{display:block}#keyFigures>div{min-width:150px;padding:0 15px}#keyFigures b{font-size:24px}#sourceLabel{font-size:10px}.publicAlert{border-left:3px solid #6bbac7;padding:8px}';document.head.append(publicStyle);
 el('sourceLabel').textContent=SIM.note;el('waterLegend').querySelector('small').textContent=SIM.note;
@@ -4703,7 +4704,7 @@ el('alongChart').onclick=ev=>{const r=ev.target.getBoundingClientRect(),px=(ev.c
 /* 工况全部复用经既有自检的步骤。闲置管只改原材质颜色，保留近景遮挡透明。 */
 function alongRememberCIP(p){if(p.med==='cip'&&!ALONG.cipOriginals.has(p))ALONG.cipOriginals.set(p,{color:p.tube.material.color.clone(),em:p.tube.material.emissive.clone(),flow:p.flow.material.color.clone()})}
 function alongCapture(){animatedPipes.forEach(p=>{alongRememberCIP(p);const b={color:p.tube.material.color.clone(),em:p.tube.material.emissive.clone()};ALONG.bases.set(p,b);if(p.opsColor)p.opsColor.copy(b.color);else p.opsColor=b.color.clone();if(p.opsEm)p.opsEm.copy(b.em);else p.opsEm=b.em.clone();if(!p.opsFlow)p.opsFlow=p.flow.material.color.clone()})}
-function alongTint(){animatedPipes.forEach(p=>{const b=ALONG.bases.get(p);if(!b)return;if(p.opsAffected){p.tube.material.color.setHex(OPS.kind==='cip'?0x42cfc4:0xf16e74).convertSRGBToLinear();p.tube.material.emissive.copy(p.tube.material.color)}else{p.tube.material.color.copy(b.color);p.tube.material.emissive.copy(b.em)}if(!p.on){p.tube.material.color.multiplyScalar(.24);p.tube.material.emissive.multiplyScalar(.24)}})}
+function alongTint(){animatedPipes.forEach(p=>{const b=ALONG.bases.get(p);if(!b)return;if(p.opsAffected){p.tube.material.color.setHex(p.bw?MEDIA.bw.c:OPS.kind==='cip'?0x42cfc4:0xf16e74).convertSRGBToLinear();p.tube.material.emissive.copy(p.tube.material.color)}else{p.tube.material.color.copy(b.color);p.tube.material.emissive.copy(b.em)}if(!p.on){p.tube.material.color.multiplyScalar(.24);p.tube.material.emissive.multiplyScalar(.24)}})}
 const alongQuality=refreshWaterQuality;refreshWaterQuality=function(){animatedPipes.forEach(p=>{alongRememberCIP(p);const b=ALONG.bases.get(p);if(b){p.tube.material.color.copy(b.color);p.tube.material.emissive.copy(b.em)}const c=ALONG.cipOriginals.get(p);if(c&&!productFlushActive){p.tube.material.color.copy(c.color);p.tube.material.emissive.copy(c.em);p.flow.material.color.copy(c.flow)}});alongQuality();alongCapture();alongTint()};
 const alongOpsVisual=opsVisual;opsVisual=function(){alongOpsVisual();alongTint()};
 alongCapture();
@@ -4784,7 +4785,7 @@ const pidEscape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':
 const viewTools=document.createElement('nav');viewTools.id='viewTools';viewTools.setAttribute('aria-label','工艺视图');
 viewTools.innerHTML='<button id="view3d" aria-pressed="true">3D</button><button id="viewPID" aria-pressed="false">P&amp;ID</button>';bar.append(viewTools);
 const pidPanel=document.createElement('section');pidPanel.id='pidPanel';pidPanel.hidden=true;
-pidPanel.innerHTML='<div class="pidHeading"><b>P&amp;ID · 工艺流程</b><span id="pidMode" role="status"></span><small>青色实线 / 箭头：通流及方向 · 灰线：隔离 · 绿阀开 / 红阀关</small></div><div id="pidDrawing"></div><details id="pidRegister"><summary>阀门 / 仪表完整位号表（与三维同源）</summary><div id="pidTags"></div></details><small class="pidFoot">罐体 / 滤床、圆形离心泵、膜单元、对夹三角阀、圆形仪表为工艺符号示意；交叉无圆点不相连。仅表达现有主干、回流及清洗支路，非施工图。流程止于纯水箱；出口仅示系统边界。</small>';
+pidPanel.innerHTML='<div class="pidHeading"><b>P&amp;ID · 工艺流程</b><span id="pidMode" role="status"></span><small>青色实线 / 箭头：通流及方向 · 灰线：隔离 · 绿色线 / 箭头：反洗（暗绿隔离） · 绿阀开 / 红阀关</small></div><div id="pidDrawing"></div><details id="pidRegister"><summary>阀门 / 仪表完整位号表（与三维同源）</summary><div id="pidTags"></div></details><small class="pidFoot">罐体 / 滤床、圆形离心泵、膜单元、对夹三角阀、圆形仪表为工艺符号示意；交叉无圆点不相连。仅表达现有主干、回流及清洗支路，非施工图。流程止于纯水箱；出口仅示系统边界。</small>';
 stEl.append(pidPanel);
 // 主干按工艺展开；每条线列出真实管段id，不复制工况阀路表。
 const PID_POS={'T-101':[95,250],'P-101':[235,250],'F-101':[375,250],'F-102':[515,250],'S-101':[655,250],'F-103':[795,250],'P-201':[935,250],'RO-101':[1105,250],'T-201':[1325,250],
@@ -4801,7 +4802,7 @@ function pidSymbol(kind){
 }
 function pidBuild(){
  PID.dirty=false;
- const defs='<defs><marker id="pidArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 0,10 Z" fill="#68c9d5"/></marker></defs>';
+ const defs='<defs><marker id="pidBwArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 0,10 Z" fill="#22c55e"/></marker><marker id="pidArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 0,10 Z" fill="#68c9d5"/></marker></defs>';
  let lines='',devices='',tags='';PID.edges=[];
  const route=(ids,points,ends)=>{
   const pipes=ids.split(' ').map(k=>PIPES[k]).filter(Boolean);if(!pipes.length)return;
@@ -4863,7 +4864,7 @@ function pidSync(){
  if(!PID.equipment.length){pidBuild();return}
  PID.dirty=false;el('pidMode').textContent=el('alongModeNote').textContent;pidPanel.dataset.mode=ALONG.mode;
  PID.equipment.forEach(e=>{const on=e.dataset.pidEq===UI.sel;e.classList.toggle('selected',on);e.setAttribute('aria-pressed',String(on))});
- PID.edges.forEach((edge,i)=>{const g=pidPanel.querySelector('[data-pid-edge="'+i+'"]'),active=edge.pipes.every(p=>p.on),p=active?edge.pipes[0]:null,path=g.querySelector('.pidLine');g.classList.toggle('flowing',active);g.classList.toggle('related',edge.ends.indexOf(UI.sel)>=0);g.dataset.active=String(active);g.dataset.direction=p?String(p.dir):'0';g.dataset.pipes=edge.pipes.map(p=>p.id).join(' ');path.removeAttribute('marker-start');path.removeAttribute('marker-end');if(p)path.setAttribute(p.dir<0?'marker-start':'marker-end','url(#pidArrow)')});
+ PID.edges.forEach((edge,i)=>{const g=pidPanel.querySelector('[data-pid-edge="'+i+'"]'),active=edge.pipes.every(p=>p.on),p=active?edge.pipes[0]:null,path=g.querySelector('.pidLine');g.classList.toggle('flowing',active);g.classList.toggle('related',edge.ends.indexOf(UI.sel)>=0);g.dataset.active=String(active);g.dataset.direction=p?String(p.dir):'0';g.dataset.pipes=edge.pipes.map(p=>p.id).join(' ');const bw=edge.pipes.every(p=>p.bw);path.style.stroke=bw?(active?'#22c55e':'#126a33'):'';path.removeAttribute('marker-start');path.removeAttribute('marker-end');if(p)path.setAttribute(p.dir<0?'marker-start':'marker-end',bw?'url(#pidBwArrow)':'url(#pidArrow)')});
  PID.valves.forEach(e=>{const v=VALVES[e.dataset.pidValve];e.classList.toggle('open',v.open);e.classList.toggle('closed',!v.open);e.dataset.open=String(v.open)});
 }
 function setProcessView(view){
