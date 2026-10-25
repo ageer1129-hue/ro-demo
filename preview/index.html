@@ -2519,8 +2519,9 @@ function nextTag(pre,base){TAGC[pre]=(TAGC[pre]||0)+1;return pre+'-'+(base+TAGC[
 function pe(eq,name,dir,len){const a=eq.ports[name].clone(),b=a.clone().add(dir.clone().normalize().multiplyScalar(len===undefined?0.15:len));eq.g.updateMatrixWorld(true);return b.applyMatrix4(eq.g.matrixWorld)}
 function DNq(Q,v){return RO.dnFor(Math.max(Q,0.05),v).dn}
 function plumb(eq,d,Z){
+  const X=window.__scaleBuilding?scaleSiteX:x=>x,ZZ=window.__scaleBuilding?scaleSiteZ:z=>z;
   TAGC={};const F=d.flow,A=RO.ASSUME,Qr=F.Qfresh;
-  const z1=-5.7,zf=-5.7,jy=0.22;
+  const z1=ZZ(-5.7),zf=ZZ(-5.7),jy=0.22;
   const mk=(id,med,pts,Q,vm,o)=>{o=o||{};const dn=o.dn||DNq(Q,vm||2.0);return addPipe({id:id,med:med,dn:dn,pts:pts,Q:Q,ss:o.ss,svc:o.svc,name:o.name,from:o.from,to:o.to})};
   const vlv=(id,type,pipe,at,name,o)=>{o=o||{};const v=addValve({id:id,type:type,pipe:pipe,at:at,name:name,ss:o.ss});v.tag=nextTag('V',100);addLabel({html:v.tag,pos:v.pos,cls:'i v',kind:'inst',maxD:9});return v};
   const ins=(id,type,pipe,at,name,unit,o)=>{const i=addInst(Object.assign({id:id,type:type,pipe:pipe,at:at,name:name,unit:unit},o||{}));
@@ -2533,7 +2534,7 @@ function plumb(eq,d,Z){
   ['T101','T201','T301','T401'].forEach(k=>{const t=E[k];if(!t)return;t.g.updateMatrixWorld(true);addLabel({html:'通气口',pos:V3(-t.R*0.55,t.y0+t.H+0.55,0.1).applyMatrix4(t.g.matrixWorld),cls:'i',kind:'inst',maxD:7})});
   /* ---- 原水箱 → 原水泵 ---- */
   const t1=E.T101,R1=t1.R,rawIn=portW(t1,'top1');
-  mk('RAW.mk','raw',[V3(-19,jy,z1),V3(t1.g.position.x-t1.R-.18,jy,z1),V3(t1.g.position.x-t1.R-.18,rawIn.y,z1),V3(rawIn.x,rawIn.y,z1),rawIn],Qr,2.0,{name:'市政补水管（浮球阀 / 液位联锁）',from:'市政来水',to:'T-101'});
+  mk('RAW.mk','raw',[V3(X(-19),jy,z1),V3(t1.g.position.x-t1.R-.18,jy,z1),V3(t1.g.position.x-t1.R-.18,rawIn.y,z1),V3(rawIn.x,rawIn.y,z1),rawIn],Qr,2.0,{name:'市政补水管（浮球阀 / 液位联锁）',from:'市政来水',to:'T-101'});
   vlv('RAW.mkv','ball','RAW.mk',2.0,'原水箱补水阀');
   const po=portW(E.P101,'suc');
   mk('RAW.suc','raw',[portW(t1,'out'),V3(po.x-.5,.5,t1.g.position.z),V3(po.x-.5,.5,z1),V3(po.x-.5,.5,po.z),V3(po.x-.5,po.y,po.z),po],Qr,1.5,{name:'原水泵吸入管',from:'T-101',to:'P-101'});
@@ -2544,7 +2545,7 @@ function plumb(eq,d,Z){
   const clearance=.18;
   const topY=e=>portW(e,'top').y,inletX=e=>e.g.position.x-e.R-.25,exitX=e=>e.g.position.x+e.R+.25;
   const boxOf=e=>new THREE.Box3().setFromObject(e.g);
-  const skidSideX=boxOf(E.R201).max.x+.4;
+  const skidSideX=(window.__scaleBuilding&&window.__scaleBuilding()?Math.max(boxOf(E.R201).max.x,boxOf(E.R101).max.x,E.T401.g.position.x+E.T401.R+.25):boxOf(E.R201).max.x)+.4;
   // 下排沿RO2前侧撬边，不沿平台外沿描框。
   const lowerZ=Math.max(...Object.keys(E.R201.ports).filter(k=>/^v\d+L$/.test(k)).map(k=>E.R201.ports[k].z))+.55;
   const sideBranch=(a,b,x,y)=>[a,V3(a.x,y,a.z),V3(x,y,a.z),V3(x,y,b.z),V3(b.x,y,b.z),b];
@@ -2559,7 +2560,7 @@ function plumb(eq,d,Z){
   const bwT=portW(t1,'bw');const pbs=portW(E.P102,'suc'),pbd=portW(E.P102,'dis');
   mk('BW.suc','raw',[bwT,V3(bwT.x,.5,pbs.z),V3(pbs.x-.6,.5,pbs.z),V3(pbs.x-.6,pbs.y,pbs.z),pbs],P_bw(Z),2.0,{svc:'bw',name:'反洗泵吸入管',from:'T-101',to:'P-102'});
   vlv('BW.sv','bf','BW.suc',-0.7,'反洗泵吸入阀');
-  const bwy=.70,bwz=z1+.8;
+  const bwy=window.__scaleBuilding&&window.__scaleBuilding()?Math.max(.7,portW(E.P101,'dis').y+.3):.70,bwz=z1+.8;
   filt.forEach(([u,e,tg],i)=>{
     const x=e.g.position.x,xn=i<2?filt[i+1][1].g.position.x:null;
     const yt=topY(e),xi=inletX(e),xo=exitX(e);const dn=dnu[u];
@@ -2604,8 +2605,8 @@ function plumb(eq,d,Z){
   const ej=ins('S.EJ','EJ','S.in',-1.25,'再生喷射器（吸盐）','');
   // 保安过滤器 → 高压泵吸入
   const cfo=portW(E.F103,'out');const ps=portW(E.P201,'suc'),pdd=portW(E.P201,'dis');const zp=E.P201.g.position.z;
-  mk('CF.out','raw',[cfo,V3(cfo.x+.9,cfo.y,cfo.z),V3(cfo.x+.9,jy,cfo.z),V3(cfo.x+.9,jy,zp-.85),V3(5.2,jy,zp-.85),V3(5.2,ps.y,zp-.85),V3(5.2,ps.y,zp)],Qr,2.0,{dn:Math.max(DNq(Qr,1.5),65),name:'保安过滤器出水',from:'F-103',to:'P-201'});
-  mk('HPS','raw',[V3(5.2,ps.y,zp),ps],F.Q1,1.5,{dn:Math.max(DNq(F.Q1,1.5),80),name:'一级高压泵吸入管',from:'F-103 / 二级浓水回流',to:'P-201'});
+  mk('CF.out','raw',[cfo,V3(cfo.x+.9,cfo.y,cfo.z),V3(cfo.x+.9,jy,cfo.z),V3(cfo.x+.9,jy,zp-.85),V3(X(5.2),jy,zp-.85),V3(X(5.2),ps.y,zp-.85),V3(X(5.2),ps.y,zp)],Qr,2.0,{dn:Math.max(DNq(Qr,1.5),65),name:'保安过滤器出水',from:'F-103',to:'P-201'});
+  mk('HPS','raw',[V3(X(5.2),ps.y,zp),ps],F.Q1,1.5,{dn:Math.max(DNq(F.Q1,1.5),80),name:'一级高压泵吸入管',from:'F-103 / 二级浓水回流',to:'P-201'});
   vlv('HPS.v','mot','HPS',-0.45,'高压泵吸入阀');
   // 加药管
   const d1=portW(E.D101,'out'),d2=portW(E.D102,'out');
@@ -2618,14 +2619,14 @@ function plumb(eq,d,Z){
   const pf=i=>sk.ports['v'+i+'L'],pr=i=>sk.ports['v'+i+'R'],pp=i=>sk.ports['v'+i+'pR'];
   const zA=sk.ports['v0L'].z,zB=sk.ports['v'+(n1-1)+'L'].z,xL=pf(0).x;
   const feedJ=V3(xL,yh,(zA+zB)/2);
-  const xj=8.4;
+  const xj=X(8.4);
   mk('HPD','raw',[V3(pdd.x,pdd.y,zp),V3(pdd.x,yh,zp),V3(xj,yh,zp)],F.Q1,3.0,{ss:true,name:'高压泵出水管',from:'P-201',to:'RO-101 进水总管'});
   mk('HPD2','raw',[V3(xj,yh,zp),V3((xj+xL)/2,yh,zp),V3((xj+xL)/2,yh,feedJ.z),V3(xL,yh,feedJ.z)],F.Q1,3.0,{ss:true,name:'一级进水汇合管（高压 / 低压冲洗 / CIP 共用）',from:'',to:'RO-101 进水总管'});
   vlv('HPD.chk','chk','HPD',0.5,'高压泵出口止回阀',{ss:true});
   vlv('HPD.v','mot','HPD',1.75,'高压泵出口电动慢开阀',{ss:true});
   // 低压冲洗旁路 / CIP 供液接入点
-  mk('LP','raw',[V3(5.2,ps.y,zp),V3(5.2,ps.y,zp+.55),V3(5.2,.95,zp+.55),V3(8.2,.95,zp+.55),V3(8.2,1.4,zp+.55)],LPQ,2.0,{name:'低压冲洗旁路（绕过高压泵）',from:'F-103 出水',to:'RO-101 进水总管'});
-  mk('LP2','raw',[V3(8.2,1.4,zp+.55),V3(8.2,2.0,zp+.55),V3(8.2,2.0,zp),V3(xj,2.0,zp),V3(xj,yh,zp)],LPQ,2.0,{name:'低压冲洗 / CIP 供液汇入管',from:'',to:'RO-101 进水总管'});
+  mk('LP','raw',[V3(X(5.2),ps.y,zp),V3(X(5.2),ps.y,zp+.55),V3(X(5.2),.95,zp+.55),V3(X(8.2),.95,zp+.55),V3(X(8.2),1.4,zp+.55)],LPQ,2.0,{name:'低压冲洗旁路（绕过高压泵）',from:'F-103 出水',to:'RO-101 进水总管'});
+  mk('LP2','raw',[V3(X(8.2),1.4,zp+.55),V3(X(8.2),2.0,zp+.55),V3(X(8.2),2.0,zp),V3(xj,2.0,zp),V3(xj,yh,zp)],LPQ,2.0,{name:'低压冲洗 / CIP 供液汇入管',from:'',to:'RO-101 进水总管'});
   vlv('LP.v','mot','LP',0.85,'低压冲洗阀');
   if(n1>1)mk('R1.fh','raw',[V3(xL,yh,zA),V3(xL,yh,zB)],F.Q1,3.0,{ss:true,dn:DNq(F.Q1,3.0),name:'一级进水总管',from:'',to:''});
   for(let i=0;i<nT;i++){
@@ -2642,9 +2643,9 @@ function plumb(eq,d,Z){
   // 末段浓水 → 排放
   const c2first=n1;const zc=pf(c2first>=nT?nT-1:c2first).z;
   const cStart=n2?pf(nT-1):pr(nT-1);
-  const concQ=d.r1.Qc,dnC=Math.max(DNq(concQ,2.5),40),zt=.35;
+  const concQ=d.r1.Qc,dnC=Math.max(DNq(concQ,2.5),40),zt=window.__scaleBuilding&&window.__scaleBuilding()?cStart.z+.8:ZZ(.35);
   mk('R1.c','conc',[V3(cStart.x,cStart.y,cStart.z),V3(cStart.x,yh,cStart.z),V3(cStart.x,yh,zt)],concQ,2.5,{ss:true,dn:dnC,name:'一级末段浓水管',from:'RO-101 末段浓水口',to:'浓水调节阀 / CIP 回流'});
-  mk('R1.c2','conc',[V3(cStart.x,yh,zt),V3(cStart.x,yh,1.35),V3(cStart.x,.32,1.35)],concQ,2.5,{ss:true,dn:dnC,name:'一级浓水排放管',from:'',to:'排水沟'});
+  mk('R1.c2','conc',[V3(cStart.x,yh,zt),V3(cStart.x,yh,window.__scaleBuilding&&window.__scaleBuilding()?zt+1:ZZ(1.35)),V3(cStart.x,.32,window.__scaleBuilding&&window.__scaleBuilding()?zt+1:ZZ(1.35))],concQ,2.5,{ss:true,dn:dnC,name:'一级浓水排放管',from:'',to:'排水沟'});
   vlv('R1.cv','glb','R1.c2',0.85,'一级浓水调节阀（控制回收率）',{ss:true});
   ins('R1.cft','FT','R1.c2',1.5,'一级浓水流量','m³/h');
   ins('R1.cpt','PT','R1.c',0.5,'一级浓水压力','bar');ins('R1.cpi','PI','R1.c',0.9,'一级浓水压力表','bar');
@@ -2664,7 +2665,7 @@ function plumb(eq,d,Z){
   ins('R1.pft','FT','R1.pm','f0.5','一级产水流量','m³/h');
   ins('R1.pce','CE','R1.pm','f0.8','一级产水电导率','µS/cm');
   ins('R1.ppi','PI','R1.pm','f0.2','一级产水背压','bar');
-  mk('R1.pd','drain',sideBranch(V3(pTap,.95,zPm),V3(pTap,.32,1.35),pTap,.65),d.r1.Qp,2.5,{dn:DNq(d.r1.Qp,2.5),name:'一级产水排放（开机/冲洗/不合格）',from:'产水总管',to:'排水沟'});
+  mk('R1.pd','drain',sideBranch(V3(pTap,.95,zPm),V3(pTap,.32,ZZ(1.35)),pTap,.65),d.r1.Qp,2.5,{dn:DNq(d.r1.Qp,2.5),name:'一级产水排放（开机/冲洗/不合格）',from:'产水总管',to:'排水沟'});
   vlv('R1.pdv','mot','R1.pd',1.3,'一级产水排放阀');
   // 压力仪表
   ins('HPD.pt','PT','HPD',1.0,'高压泵出口压力','bar');ins('HPD.pi','PI','HPD',0.3,'高压泵出口压力表','bar');
@@ -2699,10 +2700,10 @@ function plumb(eq,d,Z){
   // 二级浓水：回流 或 排放
   const cs2=m2?qf(mT-1):qr(mT-1);
   if(d.inp.ro2Conc=='recycle'){
-    mk('REC','conc',lowerReturn(cs2,V3(5.2,ps.y,zp),jy+.12),d.flow.Q2c,2.0,{ss:true,name:'二级浓水回流管 → 一级高压泵吸入',from:'RO-201 末段浓水',to:'P-201 吸入管'});
+    mk('REC','conc',lowerReturn(cs2,V3(X(5.2),ps.y,zp),jy+.12),d.flow.Q2c,2.0,{ss:true,name:'二级浓水回流管 → 一级高压泵吸入',from:'RO-201 末段浓水',to:'P-201 吸入管'});
     vlv('REC.v','mot','REC',1.1,'二级浓水回流阀（调节）',{ss:true});ins('REC.ft','FT','REC',2.2,'二级浓水回流流量','m³/h');ins('REC.ce','CE','REC',3.4,'二级浓水电导率','µS/cm');ins('REC.pi','PI','REC',1.6,'二级浓水压力','bar');
   }else{
-    mk('REC','drain',[V3(cs2.x,cs2.y,cs2.z),V3(cs2.x,1.65,cs2.z),V3(cs2.x,1.65,7.3),V3(cs2.x,0.32,7.3)],d.flow.Q2c,2.5,{ss:true,name:'二级浓水排放管',from:'RO-201 末段浓水',to:'排水沟'});
+    mk('REC','drain',[V3(cs2.x,cs2.y,cs2.z),V3(cs2.x,1.65,cs2.z),V3(cs2.x,1.65,ZZ(7.3)),V3(cs2.x,0.32,ZZ(7.3))],d.flow.Q2c,2.5,{ss:true,name:'二级浓水排放管',from:'RO-201 末段浓水',to:'排水沟'});
     vlv('REC.v','mot','REC',1.0,'二级浓水排放阀（调节）',{ss:true});ins('REC.ft','FT','REC',0.5,'二级浓水流量','m³/h');
   }
   // RO2 产水 → EDI
@@ -2718,7 +2719,7 @@ function plumb(eq,d,Z){
   mk('R2.pm2','perm',[V3(xph2-.9,.95,zqm),V3(xph2-1.3,.95,zqm),V3(xph2-1.3,.05,zqm),V3(xph2-1.3,.05,ez2),V3(fx1,.05,ez2)],d.r2.Qp,2.0,{dn:dnP2,name:'二级产水 → EDI 进水',from:'RO-201',to:'EDI-301'});
   vlv('R2.pv','mot','R2.pm2',0.2,'二级产水去 EDI 阀');
   ins('R2.pft','FT','R2.pm',0.28,'二级产水流量','m³/h');ins('R2.pce','CE','R2.pm',0.62,'二级产水电导率','µS/cm');ins('R2.ppi','PI','R2.pm',0.06,'二级产水背压','bar');
-  mk('R2.pd','drain',[V3(xph2-.9,.95,zqm),V3(xph2-.9,.95,7.3),V3(xph2-.9,.32,7.3)],d.r2.Qp,2.5,{dn:DNq(d.r2.Qp,2.5),name:'二级产水排放（开机/不合格）',from:'二级产水总管',to:'排水沟'});
+  mk('R2.pd','drain',[V3(xph2-.9,.95,zqm),V3(xph2-.9,.95,ZZ(7.3)),V3(xph2-.9,.32,ZZ(7.3))],d.r2.Qp,2.5,{dn:DNq(d.r2.Qp,2.5),name:'二级产水排放（开机/不合格）',from:'二级产水总管',to:'排水沟'});
   vlv('R2.pdv','mot','R2.pd',1.2,'二级产水排放阀');
   ins('MID.ae','AE','MID.dis',0.35,'pH 在线仪表（NaOH 联锁）','pH');ins('MID.pt','PT','MID.dis',0.9,'二级高压泵出口压力','bar');ins('MID.pi','PI','MID.dis',0.25,'二级泵出口压力表','bar');
   ins('MID.fft','FT','MID.suc',-0.35,'二级进水流量','m³/h');
@@ -2742,7 +2743,7 @@ function plumb(eq,d,Z){
   mk('ED.prod2','pure',[V3(fx0-1.3,1.8,ez),V3(t3x+t3.R+.7,1.8,ez),V3(t3x+t3.R+.7,portW(t3,'in').y,ez),V3(t3x+t3.R+.7,portW(t3,'in').y,t3z),portW(t3,'in')],d.flow.Qprod,2.0,{dn:DNq(d.flow.Qprod,2.0),name:'EDI 产水 → 纯水箱',from:'EDI-301',to:'T-301'});
   vlv('ED.pv','mot','ED.prod2',0.5,'EDI 产水去纯水箱阀');
   ins('ED.pce','CE','ED.prod',0.35,'EDI 产水电阻率 / 电导率','MΩ·cm');ins('ED.pft','FT','ED.prod',0.75,'EDI 产水流量','m³/h');
-  mk('ED.pd','drain',[V3(fx0-1.3,1.8,ez),V3(fx0-1.3,1.8,7.3),V3(fx0-1.3,.32,7.3)],d.flow.Qprod,2.5,{dn:DNq(d.flow.Qprod,2.5),name:'EDI 产水不合格排放',from:'EDI-301',to:'排水沟'});
+  mk('ED.pd','drain',[V3(fx0-1.3,1.8,ez),V3(fx0-1.3,1.8,ZZ(7.3)),V3(fx0-1.3,.32,ZZ(7.3))],d.flow.Qprod,2.5,{dn:DNq(d.flow.Qprod,2.5),name:'EDI 产水不合格排放',from:'EDI-301',to:'排水沟'});
   PIPES['ED.pd'].pts0=1;
   vlv('ED.pdv','mot','ED.pd',1.0,'EDI 产水排放阀');
   // EDI 浓水（浓水室出口，顶部）
@@ -2750,16 +2751,16 @@ function plumb(eq,d,Z){
   const lm=mods[mods.length-1],ecx=ex+lm.conc.x,ecz=ez+mods[0].conc.z;
   mk('ED.ch','conc',[V3(ex+mods[0].conc.x,2.2,ecz),V3(ecx,2.2,ecz)],d.flow.ediRej-d.flow.ediElec,2.0,{dn:DNq(d.flow.ediRej,2.0),name:'EDI 浓水总管'});
   if(d.inp.ediConc=='mid'){
-    mk('ED.cr','conc',[V3(ecx,2.2,ecz),V3(ecx+clearance,2.2,ecz),V3(ecx+clearance,.22,ecz),V3(ecx+clearance,.22,lowerZ),V3(skidSideX,.22,lowerZ),V3(skidSideX,.22,portW(tk2,'top1').z),V3(tx-tk2.R-clearance,.22,portW(tk2,'top1').z),V3(tx-tk2.R-clearance,tk2.top,portW(tk2,'top1').z),portW(tk2,'top1')],d.flow.ediRet,2.0,{dn:Math.max(25,DNq(d.flow.ediRet,2.0)),name:'EDI 浓水回流 → 中间水箱',from:'EDI-301 浓水',to:'T-201'});
+    mk('ED.cr','conc',[V3(ecx,2.2,ecz),V3(ecx+clearance,2.2,ecz),V3(ecx+clearance,(window.__scaleBuilding&&window.__scaleBuilding()?.45:.22),ecz),V3(ecx+clearance,(window.__scaleBuilding&&window.__scaleBuilding()?.45:.22),lowerZ),V3(skidSideX,(window.__scaleBuilding&&window.__scaleBuilding()?.45:.22),lowerZ),V3(skidSideX,(window.__scaleBuilding&&window.__scaleBuilding()?.45:.22),portW(tk2,'top1').z),V3(tx-tk2.R-clearance,(window.__scaleBuilding&&window.__scaleBuilding()?.45:.22),portW(tk2,'top1').z),V3(tx-tk2.R-clearance,tk2.top,portW(tk2,'top1').z),portW(tk2,'top1')],d.flow.ediRet,2.0,{dn:Math.max(25,DNq(d.flow.ediRet,2.0)),name:'EDI 浓水回流 → 中间水箱',from:'EDI-301 浓水',to:'T-201'});
   }else{
-    mk('ED.cr','drain',[V3(ecx,2.2,ecz),V3(ecx+1.9,2.2,ecz),V3(ecx+1.9,2.2,7.3),V3(ecx+1.9,0.32,7.3)],d.flow.ediRej-d.flow.ediElec,2.0,{dn:25,name:'EDI 浓水排放',from:'EDI-301 浓水',to:'排水沟'});
+    mk('ED.cr','drain',[V3(ecx,2.2,ecz),V3(ecx+1.9,2.2,ecz),V3(ecx+1.9,2.2,ZZ(7.3)),V3(ecx+1.9,0.32,ZZ(7.3))],d.flow.ediRej-d.flow.ediElec,2.0,{dn:25,name:'EDI 浓水排放',from:'EDI-301 浓水',to:'排水沟'});
   }
   vlv('ED.crv','mot','ED.cr',0.8,'EDI 浓水'+(d.inp.ediConc=='mid'?'回流':'排放')+'阀');ins('ED.cft','FT','ED.cr',1.3,'EDI 浓水流量','m³/h');
   // 极水排放
   const lastM=mods[mods.length-1];
   mods.forEach((m,i)=>mk('ED.e'+i,'drain',[V3(ex+m.elec.x,m.elec.y,ez+m.elec.z),V3(ex+m.elec.x,.7,ez+.6)],d.flow.ediElec/mods.length,2,{dn:15,name:'EDI单模块极水支管',from:'EDI-301 第'+(i+1)+'模块',to:'极水集管'}));
   mk('ED.eh','drain',[V3(ex+mods[0].elec.x,.7,ez+.6),V3(ex+lastM.cx+.6,.7,ez+.6)],d.flow.ediElec,2,{dn:20,name:'EDI极水集管',from:'EDI-301电极室',to:'极水排放'});
-  mk('ED.el','drain',[V3(ex+lastM.cx+.6,.7,ez+.6),V3(ex+lastM.cx+0.6,0.7,7.3),V3(ex+lastM.cx+0.6,0.32,7.3)],d.flow.ediElec,2.0,{dn:20,name:'EDI 极水排放（单独排放，不回流；排放区须通风）',from:'EDI-301 电极室',to:'排水沟'});
+  mk('ED.el','drain',[V3(ex+lastM.cx+.6,.7,ez+.6),V3(ex+lastM.cx+0.6,0.7,ZZ(7.3)),V3(ex+lastM.cx+0.6,0.32,ZZ(7.3))],d.flow.ediElec,2.0,{dn:20,name:'EDI 极水排放（单独排放，不回流；排放区须通风）',from:'EDI-301 电极室',to:'排水沟'});
   vlv('ED.elv','ball','ED.el',0.9,'EDI 极水排放阀');
   // 纯水箱出口（系统边界）
   mk('PW.out','pure',[portW(t3,'out'),portW(t3,'out').add(V3(-.9,0,0))],d.flow.Qprod,1.5,{dn:Math.max(DNq(d.flow.Qprod,1.5),50),name:'纯水箱出口（接用水点，本系统止于此）',from:'T-301',to:'用水点（系统边界）'});
@@ -2771,7 +2772,7 @@ function plumb(eq,d,Z){
   const cz=cT.g.position.z,cx=cT.g.position.x;
   mk('CIP.suc','cip',[portW(cT,'out'),V3(cps.x+.25,.45,cz),V3(cps.x+.25,cps.y,cz),cps],P_cip(Z),1.5,{dn:80,name:'CIP 泵吸入管',from:'T-401',to:'P-401'});vlv('CIP.sv','bf','CIP.suc',0.4,'CIP 泵吸入阀');
   mk('CIP.dis','cip',[cpd,V3(cpd.x,cfin2.y,cz),V3(cpd.x,cfin2.y,cz-.5),V3(cfin2.x-.35,cfin2.y,cz-.5),V3(cfin2.x-.35,cfin2.y,cz),cfin2],P_cip(Z),2.5,{dn:80,name:'CIP 泵出水 → CIP 保安过滤器',from:'P-401',to:'F-401'});vlv('CIP.dv','ball','CIP.dis',0.4,'CIP 泵出口阀');
-  mk('CIP.s','cip',[cfo2,V3(cfo2.x+clearance,cfo2.y,cz),V3(cfo2.x+clearance,.3,cz),V3(8.2,.3,cz),V3(8.2,.3,zp+1.1),V3(8.2,1.4,zp+1.1),V3(8.2,1.4,zp+.55)],P_cip(Z),2.5,{dn:80,name:'CIP 供液管 → 一级进水总管',from:'F-401',to:'RO-101 进水总管'});
+  mk('CIP.s','cip',[cfo2,V3(cfo2.x+clearance,cfo2.y,cz),V3(cfo2.x+clearance,.3,cz),V3(X(8.2),.3,cz),V3(X(8.2),.3,zp+1.1),V3(X(8.2),1.4,zp+1.1),V3(X(8.2),1.4,zp+.55)],P_cip(Z),2.5,{dn:80,name:'CIP 供液管 → 一级进水总管',from:'F-401',to:'RO-101 进水总管'});
   vlv('CIP.sv2','mot','CIP.s',-0.9,'CIP 供液阀');ins('CIP.pi','PI','CIP.s',0.3,'CIP 供液压力','bar');ins('CIP.ft','FT','CIP.s',0.9,'CIP 供液流量','m³/h');
   const cstart=n2?pf(nT-1):pr(nT-1),rcY=n2?.3:.12;
   mk('CIP.rc','cip',[V3(cstart.x,yh,zt),V3(cstart.x,rcY,zt),V3(portW(cT,'top1').x,rcY,zt),V3(portW(cT,'top1').x,rcY,cz-cT.R-clearance),V3(portW(cT,'top1').x,cT.top,cz-cT.R-clearance),portW(cT,'top1')],P_cip(Z),2.5,{ss:true,dn:80,name:'CIP 回流管（自一级浓水侧）',from:'RO-101 浓水侧',to:'T-401'});
@@ -2784,7 +2785,7 @@ function plumb(eq,d,Z){
   vlv('CIP.makeupV','mot','CIP.makeup',.6,'RO产水配液阀');
   // 冲洗两侧排放；供水复用清洗泵和过滤器，隔离浓水回箱。
   const cfStart=PIPES['CIP.rc'].pts[0].clone();
-  mk('CIP.flushDrain','drain',[cfStart,V3(cfStart.x-.4,cfStart.y,cfStart.z),V3(cfStart.x-.4,.32,cfStart.z),V3(cfStart.x-.4,.32,1.35)],0,2,{dn:65,name:'RO产水冲洗浓水侧排放',from:'RO-101浓水',to:'排水沟'});
+  mk('CIP.flushDrain','drain',[cfStart,V3(cfStart.x-.4,cfStart.y,cfStart.z),V3(cfStart.x-.4,.32,cfStart.z),V3(cfStart.x-.4,.32,ZZ(1.35))],0,2,{dn:65,name:'RO产水冲洗浓水侧排放',from:'RO-101浓水',to:'排水沟'});
   vlv('CIP.flushDrainV','mot','CIP.flushDrain',.6,'RO产水冲洗排放阀');
   // 把 R1.c 上的 CIP 回流支管起点修正：用 R1.c 的三通
   // 接口核查表：只描述可见接管，不参与工艺计算。
@@ -3464,11 +3465,11 @@ function VALVE_IDS(){return Object.keys(VALVES).sort((a,b)=>VALVES[a].tag<VALVES
 /* ---------- 一滴水 ---------- */
 function dropSkeleton(){
   el('pDrop').innerHTML='<div class="ctl"><button id="dPlay" data-act="dplay">▶ 放出一滴水</button><button data-act="dprev">⏮ 上一单元</button><button data-act="dnext">下一单元 ⏭</button><select id="dSpd" data-act="dspd"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></div>'
+  +'<canvas id="micc" class="mc" width="720" height="420"></canvas><div id="mict" class="note"></div>'
   +'<div class="ctl"><button id="dFollow" data-act="dfollow" class="on">跟随镜头</button><button id="dCut" data-act="dcut" class="on">透视当前设备</button><button id="dLoop" data-act="dloop" class="on">循环</button></div>'
   +'<input type="range" id="dScr" min="0" max="1000" value="0" data-act="dscr" style="width:100%"><div class="chips" id="dChips"></div>'
   +'<h3 id="dTitle"></h3><div id="dHow" class="note"></div>'
   +'<div id="m3w" class="m3w" style="display:none"><canvas id="mic3" class="mc"></canvas></div><div id="m3t" class="note" style="display:none">上图：8040 卷式膜元件放大示意（半剖；膜叶厚度、隔网、导流布为示意放大，非比例）。白色亮点 = 当前这滴水。</div>'
-  +'<canvas id="micc" class="mc" width="720" height="420"></canvas><div id="mict" class="note"></div>'
   +'<h3>实时水质（本单元发生变化的指标）</h3><div id="dLive"></div><details open><summary>本单元参数</summary><div id="dPrm"></div></details>';
 }
 function dropRefreshStatic(){
@@ -3634,7 +3635,7 @@ function auditGeometry(){
   const o={pipes:0,equipment:0,segments:0,endpoints:0,endOnPort:0,endOnEquip:0,endOnPipe:0,inside:[],insideDeclared:[],dangle:[],boundary:[],cross:[],eqOverlap:[],diagonal:[]};
   const ids=Object.keys(PIPES).filter(k=>PIPES[k].id==k);o.pipes=ids.length;
   const eqs=Object.keys(EQ).map(k=>{const e=EQ[k];e.g.updateMatrixWorld(true);const bb=new THREE.Box3();
-    e.g.traverse(m=>{if(m.isMesh&&!m.userData.blob){m.geometry.computeBoundingBox();bb.union(m.geometry.boundingBox.clone().applyMatrix4(m.matrixWorld))}});
+    e.g.traverse(m=>{if(m.isMesh&&!m.userData.blob){if(m.isInstancedMesh&&window.__scale3D)scaleObjectBoxes(m).forEach(b=>bb.union(b));else{m.geometry.computeBoundingBox();bb.union(m.geometry.boundingBox.clone().applyMatrix4(m.matrixWorld))}}});
     return {k:k,e:e,bb:bb,round:(e.kind=='tank'||e.kind=='filter'||e.kind=='cf')}});
   o.equipment=eqs.length;
   const inEq=q=>{for(const t of eqs){const bb=t.bb;
@@ -3799,6 +3800,7 @@ document.addEventListener('change',ev=>{const t=ev.target;if(t.id=='dSpd')DROP.s
 let _pd=null;cvEl.addEventListener('pointerdown',e=>{_pd=[e.clientX,e.clientY]});
 cvEl.addEventListener('pointerup',e=>{if(!_pd||Math.hypot(e.clientX-_pd[0],e.clientY-_pd[1])>4)return;const r=cvEl.getBoundingClientRect();const m=new THREE.Vector2(((e.clientX-r.left)/r.width)*2-1,-((e.clientY-r.top)/r.height)*2+1);
   const rc=new THREE.Raycaster();rc.setFromCamera(m,camera);const hits=rc.intersectObjects(scene.children,true);
+  if(window.__pipeInteraction&&interactionPick(hits))return;
   for(const h of hits){const o=h.object;if(window.opsReady&&o.userData.signal){openTrend(o.userData.signal);return}if(o.userData.eq){selectEq(o.userData.eq);return}if(o.userData.pipe){UI.selPipe=o.userData.pipe;UI.sel=null;highlight();renderEq();switchTab('pEq');return}}});
 function resize(){const w=stEl.clientWidth,h=stEl.clientHeight;if(!w||!h)return;renderer.setSize(w,h,false);camera.aspect=w/h;
   // 顶部新增信息区域后保留桌面的水平视野/像素尺度，避免近景和跟随额外渲染两侧背景。
@@ -4231,7 +4233,7 @@ caseMessage();resize();overview();
 /* 动态演示与稳态设计隔离；仅临时调用既有模型，finally 恢复假设。1Hz 更新，不改3D拓扑。 */
 const OPS={kind:'normal',elapsed:0,last:performance.now(),foul:0,cleanStart:0,model:D,shock:null,stage:0,affected:new Set(),history:{},windows:[],epoch:performance.now()};
 const OPS_NAMES={normal:'正常',foul:'膜污堵',dose:'阻垢剂停加',shock:'进水电导突升',cip:'CIP 清洗'};
-const opsPanel=document.createElement('details');opsPanel.id='opsPanel';opsPanel.open=!mobileLayout();opsPanel.innerHTML='<summary>故障 / 运维 <small>离线模拟</small></summary><div class="opsBody"><div class="opsActions"><button data-fault="foul">膜污堵</button><button data-fault="dose">阻垢剂停加</button><button data-fault="shock">进水电导突升</button><button data-fault="cip">CIP 清洗</button><button data-fault="normal">复位</button></div><p id="opsStatus" role="status"></p><div id="opsMeters"></div><small>点读数看趋势 · 最多3窗 · 设计页/操作页仍显示稳态设计值</small></div>';side.append(opsPanel);
+const opsPanel=document.createElement('details');opsPanel.id='opsPanel';opsPanel.open=false;opsPanel.innerHTML='<summary>故障 / 运维 <small>离线模拟</small></summary><div class="opsBody"><div class="opsActions"><button data-fault="foul">膜污堵</button><button data-fault="dose">阻垢剂停加</button><button data-fault="shock">进水电导突升</button><button data-fault="cip">CIP 清洗</button><button data-fault="normal">复位</button></div><p id="opsStatus" role="status"></p><div id="opsMeters"></div><small>点读数看趋势 · 最多3窗 · 设计页/操作页仍显示稳态设计值</small></div>';side.append(opsPanel);
 // 桌面放侧栏底部，避免挡住原水设备；手机折叠到场景角落。
 function placeOps(){if(mobileLayout()){stEl.append(opsPanel);opsPanel.open=false}else side.append(opsPanel)}
 placeOps();matchMedia('(max-width:1000px)').addEventListener('change',placeOps);labelControls.push(opsPanel);
@@ -5066,6 +5068,7 @@ const sizingAddPipe=addPipe;
 addPipe=function(o){const requested=o.dn,shown=Math.min(requested,sizingPipeDN[o.id]||80),p=sizingAddPipe(Object.assign({},o,{dn:shown}));if(requested>shown){p.sizingDN=requested;p.name+='（代表管径，实际水力须另校核）'}return p};
 const sizingBaseZ=JSON.parse(JSON.stringify(Z)),sizingBuildPlant=buildPlant;
 buildPlant=function(d,z){
+ if(window.__scaleBuilding&&window.__scaleBuilding())return sizingBuildPlant(d,z);
  const g=SIZING.geometry(d,z),visual=JSON.parse(JSON.stringify(sizingBaseZ));
  const cap=(c,n)=>{if(c.nv.reduce((a,b)=>a+b,0)<=n)return c;const b=Math.max(1,Math.round(n/3));return Object.assign({},c,{V:n,nv:[n-b,b]})};
  const shown=Object.assign({},d,{c1:cap(d.c1,g.ro1Vessels),c2:cap(d.c2,g.ro2Vessels)});
@@ -5133,7 +5136,7 @@ function renderSizing(){
  row('CIP 清洗泵',cell('cip.pumpFlow',c.pumpFlow,'m³/h')+'；0.3–0.4 MPa；需加热','D7/D11','流量=最大单级首段壳数×单壳6–10m³/h（假设，可改，默认8.5）；压力D7；清洗单级，不叠加两级');
  metric('吨水成本','costTotal',s.costTotal,'元/m³','成本单价依据 #1–9 / P3','既有各项公式；EDI折旧=n×模块价/(年限×年产水)；EDI功率按基准0.1×11.4/6=0.19kW/模块（教学假设，可改成本面板基准单位电耗），吨水电耗=0.1×(n/6)×(11.4/Q)；默认完全一致');
  const input=(id,label,v,min,max,ref)=>'<label title="'+ref+'">'+label+' <input id="'+id+'" type="number" min="'+min+'" max="'+max+'" step="any" value="'+v+'"></label>';
- sizingPane.innerHTML='<h3>规模选型</h3><p>模拟计算/估算，非实测。沿用当前原水与回收率；选型超限须厂家复核。三维设备保持原位置、占地和代表尺寸，数量上限 一级4壳 / 二级6壳 / EDI 8模块；管径为原管廊代表尺寸；徽标为实际总数。</p><div class="sizingInputs">'+input('sizingQ','产水 Q（m³/h）',s.Q,1,100,'全局设计产能1–100；默认11.4，D11')+'<input id="sizingSlide" aria-label="产水量滑块" type="range" min="1" max="100" step=".1" value="'+s.Q+'">'+input('sizingJ1','一级 Jd（LMH）',s.jd1,5,60,'D1/D2/D11')+input('sizingJ2','二级 Jd（LMH）',s.jd2,5,60,'D1/D2/D11')+'<label>一级回收率 % <input id="sizingR1" type="range" min="50" max="85" step="1" value="'+s.rec1*100+'"></label><label>二级回收率 % <input id="sizingR2" type="range" min="50" max="90" step="1" value="'+s.rec2*100+'"></label><button id="sizingReset">恢复默认</button></div><p id="sizingContext">'+SCENARIO.names[SCENARIO.key]+'；回收率 '+(s.rec1*100).toFixed(0)+'% / '+(s.rec2*100).toFixed(0)+'%。'+s.ranges.type+'：D1 GB '+s.ranges.gb1.join('–')+' / D2 FilmTec '+s.ranges.film1.join('–')+' LMH；二级RO产水：GB 29–34 / FilmTec 36–43。D3回收率建议：一级60–80%、二级85–90%（现有默认75%不改）。</p><details><summary>可改假设与滤速（恢复默认一并重置）</summary><div class="sizingInputs">'+Object.keys(SIZING.defaults).map(k=>{const a={mmfV:['多介质滤速 m/h',5,20,'D9/D9b C级，默认10'],acfV:['活性炭滤速 m/h',5,20,'D9/D9b C级，默认8'],sofV:['软化滤速 m/h',10,40,'假设范围10–40，默认25'],anti:['阻垢剂 mg/L',1,5,'假设范围1–5，默认3，D11'],sbs:['SBS mg/L',.1,2,'假设范围0.1–2，默认0.5，D11'],solution:['药液 g/L',10,100,'假设范围10–100，默认50'],pipeLow:['管容积下限 / 壳',0,.9,'假设，可改，默认10%'],pipeHigh:['管容积上限 / 壳',0,1,'假设，可改，默认30%'],cipFlow:['CIP 单壳 m³/h',6,10,'假设范围6–10，默认8.5，D11']}[k];return input('sizingOpt_'+k,a[0]+'（'+a[3]+'）',SIZING.options[k],a[1],a[2],a[3])}).join('')+'</div><p>药液按质量浓度g/L直接换算，不假定密度。阻垢剂剂量用于加药选型；既有吨水药耗单价/剂量由成本面板单独编辑并恢复默认。</p></details><p id="sizingErrors" role="status">'+scenarioInputError+'</p><p class="sizingWarnings">'+s.warnings.filter(x=>/通量超出|8 英寸|更小型号/.test(x)).join('<br>')+'</p><details><summary>全部选型警示 '+s.warnings.length+' 项</summary><p class="sizingWarnings">'+s.warnings.join('<br>')+'</p></details><table id="sizingTable"><thead><tr><th>项目</th><th>模拟选型 / 单位</th><th>依据</th></tr></thead><tbody>'+rows.join('')+'</tbody></table>';
+ sizingPane.innerHTML='<h3>规模选型</h3><p>模拟计算/估算，非实测。沿用当前原水与回收率；选型超限须厂家复核。规模计算与3D显示分别操作；“3D 按此规模显示”应用完整设备数量，未应用时沿用代表模型。管径为代表口径，实际水力须另校核。</p><div class="sizingInputs">'+input('sizingQ','产水 Q（m³/h）',s.Q,1,100,'全局设计产能1–100；默认11.4，D11')+'<input id="sizingSlide" aria-label="产水量滑块" type="range" min="1" max="100" step=".1" value="'+s.Q+'">'+input('sizingJ1','一级 Jd（LMH）',s.jd1,5,60,'D1/D2/D11')+input('sizingJ2','二级 Jd（LMH）',s.jd2,5,60,'D1/D2/D11')+'<label>一级回收率 % <input id="sizingR1" type="range" min="50" max="85" step="1" value="'+s.rec1*100+'"></label><label>二级回收率 % <input id="sizingR2" type="range" min="50" max="90" step="1" value="'+s.rec2*100+'"></label><button id="sizingReset">恢复默认</button></div><p id="sizingContext">'+SCENARIO.names[SCENARIO.key]+'；回收率 '+(s.rec1*100).toFixed(0)+'% / '+(s.rec2*100).toFixed(0)+'%。'+s.ranges.type+'：D1 GB '+s.ranges.gb1.join('–')+' / D2 FilmTec '+s.ranges.film1.join('–')+' LMH；二级RO产水：GB 29–34 / FilmTec 36–43。D3回收率建议：一级60–80%、二级85–90%（现有默认75%不改）。</p><details><summary>可改假设与滤速（恢复默认一并重置）</summary><div class="sizingInputs">'+Object.keys(SIZING.defaults).map(k=>{const a={mmfV:['多介质滤速 m/h',5,20,'D9/D9b C级，默认10'],acfV:['活性炭滤速 m/h',5,20,'D9/D9b C级，默认8'],sofV:['软化滤速 m/h',10,40,'假设范围10–40，默认25'],anti:['阻垢剂 mg/L',1,5,'假设范围1–5，默认3，D11'],sbs:['SBS mg/L',.1,2,'假设范围0.1–2，默认0.5，D11'],solution:['药液 g/L',10,100,'假设范围10–100，默认50'],pipeLow:['管容积下限 / 壳',0,.9,'假设，可改，默认10%'],pipeHigh:['管容积上限 / 壳',0,1,'假设，可改，默认30%'],cipFlow:['CIP 单壳 m³/h',6,10,'假设范围6–10，默认8.5，D11']}[k];return input('sizingOpt_'+k,a[0]+'（'+a[3]+'）',SIZING.options[k],a[1],a[2],a[3])}).join('')+'</div><p>药液按质量浓度g/L直接换算，不假定密度。阻垢剂剂量用于加药选型；既有吨水药耗单价/剂量由成本面板单独编辑并恢复默认。</p></details><p id="sizingErrors" role="status">'+scenarioInputError+'</p><p class="sizingWarnings">'+s.warnings.filter(x=>/通量超出|8 英寸|更小型号/.test(x)).join('<br>')+'</p><details><summary>全部选型警示 '+s.warnings.length+' 项</summary><p class="sizingWarnings">'+s.warnings.join('<br>')+'</p></details><table id="sizingTable"><thead><tr><th>项目</th><th>模拟选型 / 单位</th><th>依据</th></tr></thead><tbody>'+rows.join('')+'</tbody></table>';
  const submit=()=>{if(['sizingQ','sizingJ1','sizingJ2'].some(id=>el(id).value.trim()==='')){el('sizingErrors').textContent='请输入完整产能与通量';return false}return sizingCommit({Q:Number(el('sizingQ').value),Jd1:Number(el('sizingJ1').value),Jd2:Number(el('sizingJ2').value),rec1:Number(el('sizingR1').value)/100,rec2:Number(el('sizingR2').value)/100})};
  ['sizingQ','sizingJ1','sizingJ2','sizingR1','sizingR2'].forEach(id=>el(id).onchange=submit);el('sizingSlide').oninput=()=>{el('sizingQ').value=el('sizingSlide').value};el('sizingSlide').onchange=submit;
  Object.keys(SIZING.defaults).forEach(k=>el('sizingOpt_'+k).onchange=()=>{const e=el('sizingOpt_'+k),v=Number(e.value);if(e.value===''||!Number.isFinite(v)||v<Number(e.min)||v>Number(e.max)){e.setAttribute('aria-invalid','true');return}const old=SIZING.options[k];SIZING.options[k]=v;if(SIZING.options.pipeLow>SIZING.options.pipeHigh){SIZING.options[k]=old;el('sizingErrors').textContent='管路容积下限不能大于上限';return}sizingLast=null;if(!sizingCommit({}))SIZING.options[k]=old});
@@ -5184,6 +5187,7 @@ const INVEST=(function(){
   function add(tag,name,spec,qty,price,source,assumed,formula,category){
    let p=Object.assign({},price,overrides[tag]||{});if(tag==='RO-101.M'||tag==='RO-201.M')p.def=prices.membrane;if(tag==='EDI-301.M')p.def=prices.edi;
    p.low=Math.min(p.low,p.def);p.high=Math.max(p.high,p.def);
+   if(options.standby&&['P-101','P-201','P-202'].indexOf(tag)>=0){qty=2;spec+='；1用1备，备用计价';formula+='；数量2，备用计价，单价同档，备用不同时运行'}
    rows.push({tag:tag,name:name,spec:spec,qty:qty,unitLow:p.low,unitDef:p.def,unitHigh:p.high,subLow:qty*p.low,subDef:qty*p.def,subHigh:qty*p.high,source:source,assumed:!!assumed||!!overrides[tag]||p.def!==price.def,confidence:sources[source.split('/')[0]][0],formula:'规格数量取window.__sizing（D1–D11）；'+formula+'；小计=数量×单价；'+(overrides[tag]?'用户修改，假设，可改；':''),category:category||'mechanical'});
   }
   const tank=(tag,name,v,pure)=>add(tag,name,(pure?'304/316L 不锈钢（假设）':'PE')+' '+v.toFixed(2)+' m³',1,pure?triple(1500*v,4000*v):triple(380*v,580*v),'P9',true,pure?'无可靠不锈钢价，假设1500–4000元/m³，可改':'10m³ 3800–5800元按有效容积比例；假设，可改');
@@ -5278,7 +5282,7 @@ function renderInvestment(){
  const feeRows=b.fees.map(f=>'<tr data-fee="'+f.id+'" title="'+title(f.source,'金额=费率×'+f.baseName+'；F8=设备及此前全部费项之和；F1机械/F3E电控及整流/F4仪表分开安装，不重复；F9假设，可改')+'"><th>'+f.name+' '+f.id+'</th><td>'+range(f.rate,.01,1)+'%</td><td>'+range(f.base,10000,1)+'</td><td>'+range(f,10000,1)+'</td><td>'+f.source+' '+source(f.source)[0]+(f.assumed?'；假设，可改':'')+'</td></tr>').join('');
  const priceFields=b.rows.map(r=>'<details><summary>'+esc(r.tag+' '+r.name)+'（'+r.source+'；'+(r.assumed?'假设，可改':'公开价范围，可改')+'）</summary><div class="investmentInputs">'+['Low','Def','High'].map((k,i)=>input('investmentPrice_'+r.tag+'_'+k,['单价下限 元','单价默认 元','单价上限 元'][i],r['unit'+k],0,1e9,r.formula+'；依据 '+r.source)).join('')+'</div></details>').join('');
  const rateFields=b.fees.map(f=>'<fieldset title="'+title(f.source,'费率为可改估算；金额=基数×费率')+'"><legend>'+f.id+' '+f.name+'（%）</legend><div class="investmentInputs">'+['low','def','high'].map((k,i)=>input('investmentRate_'+f.id+'_'+k,['下限','默认','上限'][i],Number((f.rate[k]*100).toFixed(6)),0,100,'依据 '+f.source+'；下限≤默认≤上限；默认为中值；改默认会等量平移两端，改端点重取中值；可改')).join('')+'</div></fieldset>').join('');
- investmentPane.innerHTML='<h3>设备清单与投资估算</h3><p>模拟计算/估算，非实测；估算，非报价，以实际询价为准。'+esc(SCENARIO.names[SCENARIO.key])+'；Q='+s.Q+' m³/h；回收率 '+n(s.rec1*100)+'% / '+n(s.rec2*100)+'%；通量 '+s.jd1+' / '+s.jd2+' LMH。</p><div id="investmentSummary" title="CAPEX下/上限分别取所有单价及费率下/上限；默认取总区间中点。万元保留0.1。"><b>CAPEX '+['low','def','high'].map(k=>metric('capex.'+k,b.capex[k],10000,1)).join(' / ')+' 万元</b><small>下限 / 中点默认 / 上限 · 估算，非报价</small></div><div class="row"><button id="investmentExport">导出设备清单与投资 CSV</button><button id="investmentReset">恢复默认</button></div><p id="investmentError" role="status"></p><p>'+INVEST.limits+' 原水泵等按现有图示单台；只在加药装置内按D6计1用1备。三维代表尺寸不随估价改变。</p><details id="investmentSettings"><summary>经济参数、费率与单价（均可改）</summary><div class="investmentInputs">'+input('investmentMembrane','RO膜 元/支（P1 3300–5138）',SIM.prices.membrane,0,1e9,'P1；默认4000，与吨水成本共用参数；超公开范围标为用户假设')+input('investmentEDI','EDI 元/模块（P3假设2–3万）',SIM.prices.edi,0,1e9,'P3；假设，可改；默认25000，与吨水成本共用参数')+input('investmentHours','年运行小时（假设，可改）',SIM.prices.hours,.01,8784,'成本单价依据；默认8000，与吨水成本hours联动')+input('investmentDiscount','折现率 %（假设4–8，可改）',INVEST.options.discount*100,0,100,'无可靠来源，默认6%，假设，可改；i=0时CRF=1/n')+input('investmentLife','经济寿命 年（假设10–20，可改）',INVEST.options.life,1,100,'无可靠来源，默认15年，假设，可改')+'</div>'+rateFields+'<details><summary>逐项设备单价 下限 / 默认 / 上限（元）</summary>'+priceFields+'</details></details><div id="investmentBomWrap"><table id="investmentBom"><thead><tr><th>位号 / 名称</th><th>选型规格 / 数量</th><th>单价 下/默认/上 元</th><th>小计 下/默认/上 万元</th><th>依据 / 可信度 / 假设</th></tr></thead><tbody>'+b.rows.map(r=>'<tr data-bom="'+r.tag+'" title="'+title(r.source.split('/')[0],r.formula)+'"><th>'+r.tag+'<br>'+r.name+'</th><td>'+esc(r.spec)+'<br>数量 <span data-bom-field="qty" data-value="'+r.qty+'">'+r.qty+'</span></td><td>'+['Low','Def','High'].map(k=>'<span data-bom-field="unit'+k+'" data-value="'+r['unit'+k]+'">'+n(r['unit'+k])+'</span>').join(' / ')+'</td><td>'+['Low','Def','High'].map(k=>'<span data-bom-field="sub'+k+'" data-scale="10000" data-value="'+r['sub'+k]+'">'+n(r['sub'+k]/10000,1)+'</span>').join(' / ')+'</td><td>'+r.source+' '+r.confidence+'<br>'+(r.assumed?'假设，可改':'公开价范围')+'</td></tr>').join('')+'</tbody></table></div><p id="investmentEquipment" title="设备购置费=全部BOM小计逐项相加；P1/P3默认4000/25000，其他默认范围中值">设备购置费 下 / 默认 / 上：'+range(b.equipment,10000,1)+' 万元</p><div class="investmentScroll"><table id="investmentFees"><thead><tr><th>费项</th><th>费率 下/默认/上</th><th>基数 万元</th><th>金额 万元</th><th>来源/可信度</th></tr></thead><tbody>'+feeRows+'</tbody></table></div><p title="默认单价与默认费率逐项合计；CAPEX默认按上下限中点另列，两种口径不混加">默认参数逐项合计 '+n(b.pricedDefault/10000,1)+' 万元；CAPEX 中点默认 '+n(b.capex.def/10000,1)+' 万元。F8基数为所列工程费之和；尚未计价的其他费不假定为零成本。</p><div class="investmentCard" id="investmentAnchors" title="R1–R3仅量级锚点，不进入BOM或CAPEX；来源URL见页末"><b>合理性对照</b><p>本方案单位产能投资 '+range({low:b.capex.low/s.Q,def:b.capex.def/s.Q,high:b.capex.high/s.Q},10000,1)+' 万元/(m³/h)。</p><p>R1：5 m³/h，39.8–43.0 万（8.0–8.6 万元/(m³/h)，A）；R2：10 t/h，45.5 万（4.6，B）；R3：3 t/h，24.3 万（8.1，B）。锚点工艺、品牌、含安装口径不明，只作量级参考；不能据此认定报价合理。</p></div><div class="investmentCard" id="investmentEconomics"><b>经济性 · 下限 / 默认 / 上限</b><p title="依据 成本单价依据#1–12 / P1/P3 / O1–O5；沿用SIM现有费用：电/原水/药剂/膜与EDI折旧；不含人工及其他设备更新">OPEX '+metric('opex',b.opex,1,2)+' 元/m³；年产水 '+n(b.annual)+' m³</p><p title="CRF=i(1+i)^n/((1+i)^n−1)；i=0取1/n；i和n均为假设，可改">CRF '+metric('crf',b.crf,1,4)+'；折现率 '+n(INVEST.options.discount*100,1)+'%，寿命 '+n(INVEST.options.life,1)+' 年（假设，可改；参考4–8% / 10–20年）</p><p title="LCOW=(CAPEX−首装RO膜元件及EDI模块购置费)×CRF/(Q×年小时)+OPEX。OPEX已含膜/EDI折旧；首装只计一次。每个端点减去同端点首装费；默认减默认价。来源P1/P3，i=6%和n=15年均假设，可改。">LCOW '+['low','def','high'].map(k=>metric('lcow.'+k,b.lcow[k],1,2)).join(' / ')+' 元/m³</p>'+input('investmentCompare','对比水价 元/m³（留空不估回收期）',INVEST.options.compare,0,1e6,'用户输入外购纯水或现状成本；没有默认值；回收期=CAPEX/((对比水价−OPEX)×年产水)')+'<p id="investmentPayback" title="回收期=CAPEX/((对比水价−OPEX)×年产水)；价差≤0不回收；未经折现的简单回收期">'+(!b.payback?'输入对比水价后计算':b.payback.def===null?'不回收':'简单回收期 '+range(b.payback,1,1)+' 年')+'</p></div><details><summary>所有公开来源 URL（离线文本）</summary>'+Object.keys(INVEST.sources).map(id=>'<p title="依据 '+id+'">'+id+' '+esc(INVEST.sources[id].join('；'))+'</p>').join('')+'</details>';
+ investmentPane.innerHTML='<h3>设备清单与投资估算</h3><p>模拟计算/估算，非实测；估算，非报价，以实际询价为准。'+esc(SCENARIO.names[SCENARIO.key])+'；Q='+s.Q+' m³/h；回收率 '+n(s.rec1*100)+'% / '+n(s.rec2*100)+'%；通量 '+s.jd1+' / '+s.jd2+' LMH。</p><div id="investmentSummary" title="CAPEX下/上限分别取所有单价及费率下/上限；默认取总区间中点。万元保留0.1。"><b>CAPEX '+['low','def','high'].map(k=>metric('capex.'+k,b.capex[k],10000,1)).join(' / ')+' 万元</b><small>下限 / 中点默认 / 上限 · 估算，非报价</small></div><div class="row"><button id="investmentExport">导出设备清单与投资 CSV</button><button id="investmentReset">恢复默认</button></div><p id="investmentError" role="status"></p><p>'+INVEST.limits+' 默认未计备用泵投资；3D 图示为 1用1备。加药装置内按D6计2泵/套。三维代表尺寸不随估价改变。</p><details id="investmentSettings"><summary>经济参数、费率与单价（均可改）</summary><div class="investmentInputs">'+input('investmentMembrane','RO膜 元/支（P1 3300–5138）',SIM.prices.membrane,0,1e9,'P1；默认4000，与吨水成本共用参数；超公开范围标为用户假设')+input('investmentEDI','EDI 元/模块（P3假设2–3万）',SIM.prices.edi,0,1e9,'P3；假设，可改；默认25000，与吨水成本共用参数')+input('investmentHours','年运行小时（假设，可改）',SIM.prices.hours,.01,8784,'成本单价依据；默认8000，与吨水成本hours联动')+input('investmentDiscount','折现率 %（假设4–8，可改）',INVEST.options.discount*100,0,100,'无可靠来源，默认6%，假设，可改；i=0时CRF=1/n')+input('investmentLife','经济寿命 年（假设10–20，可改）',INVEST.options.life,1,100,'无可靠来源，默认15年，假设，可改')+'</div>'+rateFields+'<details><summary>逐项设备单价 下限 / 默认 / 上限（元）</summary>'+priceFields+'</details></details><div id="investmentBomWrap"><table id="investmentBom"><thead><tr><th>位号 / 名称</th><th>选型规格 / 数量</th><th>单价 下/默认/上 元</th><th>小计 下/默认/上 万元</th><th>依据 / 可信度 / 假设</th></tr></thead><tbody>'+b.rows.map(r=>'<tr data-bom="'+r.tag+'" title="'+title(r.source.split('/')[0],r.formula)+'"><th>'+r.tag+'<br>'+r.name+'</th><td>'+esc(r.spec)+'<br>数量 <span data-bom-field="qty" data-value="'+r.qty+'">'+r.qty+'</span></td><td>'+['Low','Def','High'].map(k=>'<span data-bom-field="unit'+k+'" data-value="'+r['unit'+k]+'">'+n(r['unit'+k])+'</span>').join(' / ')+'</td><td>'+['Low','Def','High'].map(k=>'<span data-bom-field="sub'+k+'" data-scale="10000" data-value="'+r['sub'+k]+'">'+n(r['sub'+k]/10000,1)+'</span>').join(' / ')+'</td><td>'+r.source+' '+r.confidence+'<br>'+(r.assumed?'假设，可改':'公开价范围')+'</td></tr>').join('')+'</tbody></table></div><p id="investmentEquipment" title="设备购置费=全部BOM小计逐项相加；P1/P3默认4000/25000，其他默认范围中值">设备购置费 下 / 默认 / 上：'+range(b.equipment,10000,1)+' 万元</p><div class="investmentScroll"><table id="investmentFees"><thead><tr><th>费项</th><th>费率 下/默认/上</th><th>基数 万元</th><th>金额 万元</th><th>来源/可信度</th></tr></thead><tbody>'+feeRows+'</tbody></table></div><p title="默认单价与默认费率逐项合计；CAPEX默认按上下限中点另列，两种口径不混加">默认参数逐项合计 '+n(b.pricedDefault/10000,1)+' 万元；CAPEX 中点默认 '+n(b.capex.def/10000,1)+' 万元。F8基数为所列工程费之和；尚未计价的其他费不假定为零成本。</p><div class="investmentCard" id="investmentAnchors" title="R1–R3仅量级锚点，不进入BOM或CAPEX；来源URL见页末"><b>合理性对照</b><p>本方案单位产能投资 '+range({low:b.capex.low/s.Q,def:b.capex.def/s.Q,high:b.capex.high/s.Q},10000,1)+' 万元/(m³/h)。</p><p>R1：5 m³/h，39.8–43.0 万（8.0–8.6 万元/(m³/h)，A）；R2：10 t/h，45.5 万（4.6，B）；R3：3 t/h，24.3 万（8.1，B）。锚点工艺、品牌、含安装口径不明，只作量级参考；不能据此认定报价合理。</p></div><div class="investmentCard" id="investmentEconomics"><b>经济性 · 下限 / 默认 / 上限</b><p title="依据 成本单价依据#1–12 / P1/P3 / O1–O5；沿用SIM现有费用：电/原水/药剂/膜与EDI折旧；不含人工及其他设备更新">OPEX '+metric('opex',b.opex,1,2)+' 元/m³；年产水 '+n(b.annual)+' m³</p><p title="CRF=i(1+i)^n/((1+i)^n−1)；i=0取1/n；i和n均为假设，可改">CRF '+metric('crf',b.crf,1,4)+'；折现率 '+n(INVEST.options.discount*100,1)+'%，寿命 '+n(INVEST.options.life,1)+' 年（假设，可改；参考4–8% / 10–20年）</p><p title="LCOW=(CAPEX−首装RO膜元件及EDI模块购置费)×CRF/(Q×年小时)+OPEX。OPEX已含膜/EDI折旧；首装只计一次。每个端点减去同端点首装费；默认减默认价。来源P1/P3，i=6%和n=15年均假设，可改。">LCOW '+['low','def','high'].map(k=>metric('lcow.'+k,b.lcow[k],1,2)).join(' / ')+' 元/m³</p>'+input('investmentCompare','对比水价 元/m³（留空不估回收期）',INVEST.options.compare,0,1e6,'用户输入外购纯水或现状成本；没有默认值；回收期=CAPEX/((对比水价−OPEX)×年产水)')+'<p id="investmentPayback" title="回收期=CAPEX/((对比水价−OPEX)×年产水)；价差≤0不回收；未经折现的简单回收期">'+(!b.payback?'输入对比水价后计算':b.payback.def===null?'不回收':'简单回收期 '+range(b.payback,1,1)+' 年')+'</p></div><details><summary>所有公开来源 URL（离线文本）</summary>'+Object.keys(INVEST.sources).map(id=>'<p title="依据 '+id+'">'+id+' '+esc(INVEST.sources[id].join('；'))+'</p>').join('')+'</details>';
  investmentPane.querySelectorAll('details').forEach((e,i)=>{if(opened[i])e.open=true});investmentPane.scrollTop=scroll;if(active&&el(active))el(active).focus({preventScroll:true});
  el('investmentReset').onclick=investmentReset;el('investmentExport').onclick=investmentExport;
  function bind(id,fn){el(id).onchange=()=>{const e=el(id),value=e.value.trim(),v=Number(value);if(value===''||!Number.isFinite(v)||v<Number(e.min)||v>Number(e.max)){e.setAttribute('aria-invalid','true');el('investmentError').textContent='请输入范围内有效值，估算保留上次有效输入';return}fn(v)}}
@@ -5563,4 +5567,753 @@ const runStyle=document.createElement('style');runStyle.textContent='#pRunData{f
 // 原五项改短标题，九项保持两行；既有data-act/tab事件与移动入口不变。
 [['pOp','操作流程'],['pDrop','水滴旅程'],['pEq','设备管路'],['pCalc','水质计算'],['pBasis','设计依据']].forEach(a=>{const b=document.querySelector('#tb [data-t="'+a[0]+'"]');if(b){b.dataset.fullTitle=a[1];if(!mobileLayout())b.textContent=a[1]}});
 window.runDataReady=true;
+
+/* I1/I2 只读拓扑适配。from/to原文不变；connections端口及可见三通补全总管空位。
+ * 不解水力，不改SIM。停流是当前步骤的供水可达性假设，水箱暂存/压力瞬态未建模。
+ * I3/M1后续可用 registerPick(part,{pipe:id,accessory:true}) 登记附件。
+ */
+const INTERACTION_GRAPH=(function(){
+ const near=1e-5; // 软件坐标归并容差（m），不是工程尺寸。
+ function build(pipes,eq,st,extra){
+  const list=Array.from(new Set(Object.keys(pipes).map(k=>pipes[k]))),nodes=new Map(),edges=[],parts={},ports={},ends=[];
+  const node=point=>{const key=[point.x,point.y,point.z].map(v=>Math.round(v/near)).join(',');if(!nodes.has(key))nodes.set(key,{id:key,out:[],in:[]});return key};
+  const add=(a,b,p,eqid,gate)=>{if(a===b)return;const e={a:a,b:b,pipe:p||'',eq:eqid||'',gate:gate||[]};edges.push(e);nodes.get(a).out.push(e);nodes.get(b).in.push(e);return e};
+  list.forEach(p=>{ends.push(p.pts[0],p.pts[p.pts.length-1])});
+  list.forEach(p=>{
+   const cum=[0];for(let i=1;i<p.pts.length;i++)cum.push(cum[i-1]+p.pts[i].distanceTo(p.pts[i-1]));
+   const project=(pt,exact)=>{let best=null;for(let i=1;i<p.pts.length;i++){const a=p.pts[i-1],b=p.pts[i],d=b.clone().sub(a),len=d.length(),u=Math.max(0,Math.min(1,pt.clone().sub(a).dot(d)/(len*len||1))),q=a.clone().addScaledVector(d,u),dist=q.distanceTo(pt);if((!exact||dist<near)&&(!best||dist<best.dist))best={s:cum[i-1]+u*len,q:q,dist:dist}}return best};
+   const cuts=[{s:0,q:p.pts[0]},{s:cum[cum.length-1],q:p.pts[p.pts.length-1]}];
+   ends.forEach(pt=>{const hit=project(pt,true);if(hit)cuts.push(hit)});
+   p.valves.forEach(id=>{const hit=project(VALVES[id].g.position,false);if(hit){hit.valve=id;cuts.push(hit)}});
+   cuts.sort((a,b)=>a.s-b.s);const unique=[];cuts.forEach(c=>{const prev=unique[unique.length-1];if(prev&&Math.abs(prev.s-c.s)<near){if(c.valve)prev.gates.push(c.valve)}else unique.push({s:c.s,q:c.q,gates:c.valve?[c.valve]:[]})});
+   unique.forEach(c=>c.node=node(c.q));parts[p.id]=[];
+   // 汇集/分配总管允许从三通的任一侧通向支管；阀门仍是有向边上的独立阻断。
+   const header=/^(R[12]\.(fh|ph|is|ch)|ED\.(fh|ph|ch|eh)|BANK\..*\.(feed|collect|fh\d+|oh\d+))$/.test(p.id),rev=(p.dir||1)<0;
+   for(let i=1;i<unique.length;i++){const a=unique[i-1],b=unique[i],gate=a.gates.concat(b.gates);parts[p.id].push(add(rev?b.node:a.node,rev?a.node:b.node,p.id,'',gate));if(header)parts[p.id].push(add(rev?a.node:b.node,rev?b.node:a.node,p.id,'',gate))}
+   (p.connections||[]).forEach(c=>{const n=unique[c.end?unique.length-1:0].node,arrival=rev?!c.end:!!c.end;(ports[c.eq]||(ports[c.eq]=[])).push({node:n,inlet:arrival,port:c.port,pipe:p.id})});
+  });
+  Object.keys(ports).forEach(id=>{const items=ports[id],e=eq[id];if(!e)return;
+   if(e.kind==='pump'&&st&&(st.pumps||[]).indexOf(id)<0)return;
+   const ro=/^RO-/.test(id),edi=id==='EDI-301';
+   items.filter(p=>p.inlet).forEach(a=>items.filter(p=>!p.inlet).forEach(b=>{
+    if(id==='T-301')return; // 系统终点；原PW.out保留，追踪到箱即止。
+    if(ro){const i=+(a.port.match(/^v(\d+)/)||[])[1],j=+(b.port.match(/^v(\d+)/)||[])[1],n=e.skid.nvs[0];if(i!==j&&!(i>=n&&/末段浓水/.test(pipes[b.pipe].from)))return}
+    if(edi){const i=+(a.port.match(/\d+$/)||[])[0],j=+(b.port.match(/\d+$/)||[])[0];if(i!==j)return;if(/^feed/.test(a.port)&&!/^prod/.test(b.port))return;if(/^concIn/.test(a.port)&&/^prod/.test(b.port))return}
+    add(a.node,b.node,'',id);
+   }));
+  });
+  // 盐箱未列connections，保留from位号作为边界显示，不把药剂当作主供水源。
+  const allowed=st?new Set((st.flow||[]).concat(extra||[])):null;
+  const usable=(e,states)=>!e.pipe||(!allowed||allowed.has(e.pipe))&&e.gate.every(id=>states===null||((states&&id in states)?states[id]:VALVES[id].open));
+  return {nodes:nodes,edges:edges,parts:parts,ports:ports,usable:usable,pipes:pipes};
+ }
+ function walk(g,seeds,reverse,states){const seen=new Set(seeds),found=new Set(),queue=seeds.slice();for(let i=0;i<queue.length;i++){const n=g.nodes.get(queue[i]);if(!n)continue;(reverse?n.in:n.out).forEach(e=>{if(!g.usable(e,states))return;found.add(e);const next=reverse?e.a:e.b;if(!seen.has(next)){seen.add(next);queue.push(next)}})}return {nodes:seen,edges:found}}
+ function trace(g,id){const initial=g.parts[id]||[],seeds=[];initial.forEach(e=>seeds.push(e.a,e.b));const up=walk(g,seeds,true,null),down=walk(g,Array.from(up.nodes),false,null),edges=new Set([...up.edges,...down.edges,...initial]),pipeIds=new Set(),devices=new Set();edges.forEach(e=>{if(e.pipe)pipeIds.add(e.pipe);if(e.eq)devices.add(e.eq)});
+  pipeIds.forEach(k=>{const p=g.pipes[k];[p.from,p.to].forEach(s=>(s.match(/[A-Z]+-\d+/g)||[]).forEach(t=>{if(EQ[t]&&!g.ports[t])devices.add(t)}));(p.connections||[]).forEach(c=>devices.add(c.eq))});
+  // BFS主线顺序；分支/回流只列一次，完整分支由pipeIds保留。
+  const order=[],ordered=new Set(),roots=[];g.nodes.forEach(n=>{if(down.nodes.has(n.id)&&!n.in.some(e=>edges.has(e)))roots.push(n.id)});if(!roots.length)roots.push(pipeIds.has('CIP.suc')&&g.parts['CIP.suc'].length?g.parts['CIP.suc'][0].a:initial.length?initial[0].a:'');const visited=new Set(roots),queue=roots.slice();
+  const append=id=>{if(devices.has(id)&&!ordered.has(id)){ordered.add(id);order.push(id)}};
+  for(let i=0;i<queue.length;i++){const n=g.nodes.get(queue[i]);if(!n)continue;n.out.forEach(e=>{if(!edges.has(e))return;if(e.eq)append(e.eq);if(e.pipe){const p=g.pipes[e.pipe];(p.connections||[]).forEach(c=>append(c.eq))}if(!visited.has(e.b)){visited.add(e.b);queue.push(e.b)}})}devices.forEach(append);
+  return {id:id,pipes:Array.from(pipeIds),devices:order};
+ }
+ function supply(g,states,st){const roots=[];['RAW.mk','CIP.suc','CIP.makeup'].forEach(id=>{if((st.flow||[]).indexOf(id)>=0&&g.parts[id]&&g.parts[id][0])roots.push(g.parts[id][0].a)});
+  const r=walk(g,roots,false,states),alive=new Set();r.edges.forEach(e=>{if(e.pipe)alive.add(e.pipe)});
+  // 原纯水箱出口只作边界状态，不继续遍历到用水系统。
+  if((st.flow||[]).indexOf('PW.out')>=0&&(g.ports['T-301']||[]).some(p=>p.inlet&&r.nodes.has(p.node))&&(g.parts['PW.out']||[]).every(e=>g.usable(e,states)))alive.add('PW.out');
+  // 加药依附于承载水路；药剂不反向供给失水的主工艺线。
+  (st.flow||[]).filter(id=>/^(D[123]\.l|S.br)$/.test(id)).forEach(id=>{const part=g.parts[id]||[],last=part[part.length-1];if(last&&r.nodes.has(last.b)&&part.every(e=>g.usable(e,states)))alive.add(id)});
+  return alive;
+ }
+ const rules=[
+  {id:'inlet-low',pipes:['RAW.suc','M.in','M.vi','M.bot','M.out','A.vi','A.bot','A.out','S.vi','S.bot','S.out','CF.out','HPS'],why:'J2/A1：高压泵前供水通路断流 → 入口低压风险（不计算新压力）'},
+  {id:'r1-flow-low',pipes:['R1.pm','R1.pm2'],why:'J2/A5：一级产水通路断流 → 标准化产水下降风险'},
+  {id:'r2-flow-low',pipes:['R2.pm','R2.pm2'],why:'J2/A5：二级产水通路断流 → 标准化产水下降风险'},
+  {id:'edi-flow-low',pipes:['ED.fh','ED.prod','ED.prod2'],why:'J3/A6：EDI进水或产水断流 → 产水低流量风险，既有模块低限'},
+  {id:'edi-conc-low',pipes:['ED.cih','ED.cr'],why:'J3/A6：浓水室通路断流 → 浓水低流量风险'},
+  {id:'edi-flush-low',pipes:['ED.el'],why:'J3/A6：极水排放断流 → 极水低流量风险'},
+  {id:'pure-low',pipes:['ED.prod2'],why:'J1/A1：纯水箱补水中断 → 液位低趋势，未计算液位或到限时间'},
+  {id:'dose-stop',pipes:['D1.l'],why:'J2/A1：阻垢剂通路断流 → 既有停加药风险'}
+ ];
+ function alarms(dead,items){const set=new Set(dead);return rules.filter(r=>r.pipes.some(id=>set.has(id))).map(r=>{const a=items.find(a=>a.id===r.id);return a?{id:a.id,name:a.name,threshold:a.threshold,setpoint:a.setpoint,unit:a.unit,reason:r.why+'；命中管段 '+r.pipes.filter(id=>set.has(id)).join('、'),source:a.source}:null}).filter(Boolean)}
+ return {build:build,trace:trace,supply:supply,alarms:alarms,rules:rules};
+})();
+
+/* I1/I2 展示叠加层：沿用材质、拾取、0.8s阀柄动画；默认帧循环只多两个布尔分支。 */
+const PIPE_INTERACTION={trace:null,path:null,valve:null,active:false,saved:null,dead:new Set(),devices:[],alarms:[],base:new Map(),eqHooks:[],graph:null,guard:false};
+const interactionEscape=v=>String(v===undefined?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+const interactionStep=()=>MODES[UI.mode].steps[UI.step];
+function interactionGraph(id){
+ const st=interactionStep(),extra=[];
+ // 反洗追踪展示完整总管及各罐支路，同时在面板区分当前通流与停流结构。
+ if(id&&PIPES[id]&&PIPES[id].bw){animatedPipes.forEach(p=>{if(p.bw||/^[MAS]\.(vi|bot)$/.test(p.id))extra.push(p.id)});const bw=Object.assign({},st,{pumps:['P-102'],flow:['RAW.mk'].concat(extra),rev:['M.vi','M.bot','A.vi','A.bot','S.vi','S.bot']});
+  // 不改p.dir或原步骤；新图的内部边按当前反洗方向适配。
+  const dirs=animatedPipes.map(p=>p.dir);animatedPipes.forEach(p=>{if(/^[MAS]\.(vi|bot)$/.test(p.id))p.dir=-1});try{return INTERACTION_GRAPH.build(PIPES,EQ,bw)}finally{animatedPipes.forEach((p,i)=>p.dir=dirs[i])}}
+ if(id&&/^CIP\./.test(id)&&PIPES[id]&&!PIPES[id].on){const key=id==='CIP.makeup'?'c1':id==='CIP.flushDrain'?'c0':'c4',service=MODES[2].steps.find(s=>s.k===key),rev=new Set(service.rev||[]),dirs=animatedPipes.map(p=>p.dir);animatedPipes.forEach(p=>p.dir=(rev.has(p.id)?-1:1)*(p.flowReoriented?-1:1));try{return INTERACTION_GRAPH.build(PIPES,EQ,service)}finally{animatedPipes.forEach((p,i)=>p.dir=dirs[i])}}
+ if(id&&PIPES[id]&&!PIPES[id].on){extra.push(id);}
+ return INTERACTION_GRAPH.build(PIPES,EQ,st,extra);
+}
+function interactionCaptureColors(){PIPE_INTERACTION.base.clear();animatedPipes.forEach(p=>{const m=p.tube.material;PIPE_INTERACTION.base.set(p,{color:m.color.clone(),em:m.emissive.clone(),intensity:m.emissiveIntensity,flow:p.flow.material.color.clone()})})}
+function interactionRestoreColors(){PIPE_INTERACTION.base.forEach((b,p)=>{const m=p.tube.material;m.color.copy(b.color);m.emissive.copy(b.em);m.emissiveIntensity=b.intensity;p.flow.material.color.copy(b.flow)})}
+function interactionTint(){const state=PIPE_INTERACTION,t=state.trace;if(!t&&!state.active)return;const path=t?state.path:null;state.base.forEach((b,p)=>{const m=p.tube.material,f=state.dead.has(p.id)?.12:path?(path.has(p.id)?1.35:.15):1;m.color.copy(b.color).multiplyScalar(f);m.emissive.copy(b.em).multiplyScalar(f);if(path&&path.has(p.id))m.emissiveIntensity=Math.max(.32,b.intensity);else m.emissiveIntensity=b.intensity;p.flow.material.color.copy(b.flow).multiplyScalar(f)})}
+function interactionUnhookEq(){PIPE_INTERACTION.eqHooks.forEach(h=>{h.object.onBeforeRender=h.before;h.object.onAfterRender=h.after});PIPE_INTERACTION.eqHooks.length=0}
+function interactionHighlightEq(){
+ interactionUnhookEq();const st=PIPE_INTERACTION;if(!st.trace)return;const selected=new Set(st.trace.devices),materials=new Map();
+ Object.keys(EQ).forEach(id=>EQ[id].g.traverse(o=>{if(!o.isMesh||!o.material)return;const mats=Array.isArray(o.material)?o.material:[o.material];mats.forEach(m=>{if(!materials.has(m))materials.set(m,{color:m.color&&m.color.clone(),em:m.emissive&&m.emissive.clone()})});const before=o.onBeforeRender,after=o.onAfterRender,factor=selected.has(id)?1.25:.18;
+  // 设备共用材质，按draw临时调亮度并立即还原；不克隆材质，不改变共享者的持久颜色。
+  o.onBeforeRender=function(r,s,c,g,m,group){before.call(this,r,s,c,g,m,group);const b=materials.get(m);if(!b)return;if(b.color)m.color.copy(b.color).multiplyScalar(factor);if(b.em)m.emissive.copy(b.em).multiplyScalar(factor);m.needsUpdate=true};
+  o.onAfterRender=function(r,s,c,g,m,group){const b=materials.get(m);if(b){if(b.color)m.color.copy(b.color);if(b.em)m.emissive.copy(b.em);m.needsUpdate=true}after.call(this,r,s,c,g,m,group)};
+  st.eqHooks.push({object:o,before:before,after:after});
+ }));
+}
+function interactionStopTrace(render){const s=PIPE_INTERACTION;if(!s.trace)return;interactionRestoreColors();interactionUnhookEq();s.trace=null;s.path=null;s.base.clear();if(s.active){interactionCaptureColors();interactionTint()}syncFlowAppearance();if(render!==false)renderEq();wakeRender()}
+function tracePipe(id){if(!PIPES[id])return;if(PIPE_INTERACTION.active)resetValveHypothesis(false);PIPE_INTERACTION.valve=null;interactionStopTrace(false);if(PRESENT.active)exitDemo();pauseTour();DROP.active=false;DROP.playing=false;stopAuto();UI.sel=null;UI.selPipe=id;highlight();switchTab('pEq');const s=PIPE_INTERACTION;s.graph=interactionGraph(id);s.trace=INTERACTION_GRAPH.trace(s.graph,id);s.path=new Set(s.trace.pipes);interactionCaptureColors();interactionTint();interactionHighlightEq();syncFlowAppearance();renderEq();if(mobileLayout())setSheet(true);wakeRender()}
+function interactionEqLink(id){return '<button data-interaction-eq="'+interactionEscape(id)+'" title="J1：跳到该设备">'+interactionEscape(id)+(EQ[id]?' · '+interactionEscape(EQ[id].name):'')+'</button>'}
+function interactionPipeRead(p){
+ const v=OPS.values||SIM.signals(),pressure=p.insts.map(id=>INSTS[id]).find(i=>i.unit==='bar'),signal=pressure&&gaugeSignal(pressure),pv=signal&&v[signal],a=ANIM.pipes.find(a=>a.id===p.id),quality=p.quality;
+ const value=(x,unit)=>Number.isFinite(x)?FN(x,unit==='µS/cm'?4:2)+' '+unit:'—（模型未计算）';
+ return '<p title="J1：现有管段/仪表模型；不插值，不外推">模拟计算，非实测</p><table>'+[
+ ['介质',MEDIA[p.bw?'bw':p.med].n],['从 → 到',(p.from||'—（管口拓扑补全）')+' → '+(p.to||'—（管口拓扑补全）')],['当前流量',a?value(a.flow,'m³/h'):'—（模型未计算）'],['设计流量',value(p.Q,'m³/h')],['本段测点压力',value(pv,'bar')+(pressure?'（'+pressure.tag+'）':'')],['电导率',value(quality&&quality.EC,'µS/cm')],['TDS',value(quality&&quality.TDS,'mg/L')]
+ ].map(r=>'<tr><th>'+r[0]+'</th><td>'+interactionEscape(r[1])+'</td></tr>').join('')+'</table><small>压力只列本管段已有测点。停流后的水质仅保留既有稳态参考，未算压力瞬态/滞水水质。依据 J1。</small>';
+}
+function interactionRender(){
+ const s=PIPE_INTERACTION,old=el('pipeInteraction');if(old)old.remove();if(!s.trace&&!s.valve&&!s.active)return;const box=document.createElement('section');box.id='pipeInteraction';
+ let h='';if(s.valve){const v=VALVES[s.valve];if(v){const design=s.saved?s.saved.valves.find(a=>a.id===v.id).open:v.open;h+='<h3>阀门 · '+interactionEscape(v.tag||v.id)+'</h3><p>'+interactionEscape(v.name)+'</p><p title="J1：当前流程步骤的阀位；推演不改步骤定义">设计状态：'+(design?'开':'关')+'；'+(s.active?'推演':'当前')+'状态：'+(v.open?'开':'关')+'</p><button id="valveHypothesisToggle">'+(v.open?'关':'开')+'（推演）</button> <button id="valveHypothesisClose">关闭面板</button><p class="note">阀门推演模式 · 模拟推演，非实测。只判断当前步骤的通路；开阀不启动新泵或改变步骤。</p>'}}
+ if(s.trace){const p=PIPES[s.trace.id];h+='<h3>追踪流程 · '+interactionEscape(p.name)+'</h3>'+interactionPipeRead(p)+'<h4>经过设备（分支 / 回流各列一次）</h4><div class="interactionPath">'+s.trace.devices.map(interactionEqLink).join('<span> → </span>')+'</div><details><summary>全部管段（'+s.trace.pipes.length+'）</summary>'+s.trace.pipes.map(id=>'<div>'+interactionEscape(id+' · '+PIPES[id].name)+' <small>'+(PIPES[id].on?'当前通流':'结构支路，当前停流')+'</small></div>').join('')+'</details><p>沿当前步骤追到源头、纯水箱或排放；反洗展示各罐结构支路，闲置CIP按原对应CIP步骤展示结构。依据 J1。</p><button id="pipeTraceExit">退出追踪</button>'}
+ if(s.active)h+='<h4>断流管段 / 设备</h4><div id="valveDeadPipes">'+(Array.from(s.dead).map(id=>interactionEscape(id+' '+PIPES[id].name)).join('；')||'无新增断流')+'</div><div class="interactionPath">'+s.devices.map(interactionEqLink).join(' ')+'</div><h4>可能触发的既有报警 / 趋势</h4><div id="valveRiskAlarms">'+(s.alarms.map(a=>'<p data-risk-alarm="'+a.id+'" title="'+interactionEscape(a.reason+'；'+a.source)+'"><b>'+interactionEscape(a.name)+'</b><br>'+interactionEscape(a.threshold)+'<small>匹配依据：'+interactionEscape(a.reason)+'</small></p>').join('')||'未匹配到既有条目')+'</div><p title="J1–J3：教学连通性假设">水箱暂存、阀阻、憋压及液位变化未求解；清单是风险提示，不能当作已越限。</p>';
+ box.innerHTML=h;el('pEq').prepend(box);
+ const bind=(id,fn)=>{const e=el(id);if(e)e.onclick=fn};bind('pipeTraceExit',()=>interactionStopTrace());bind('valveHypothesisToggle',()=>hypothesizeValve(s.valve,!VALVES[s.valve].open));bind('valveHypothesisClose',()=>{s.valve=null;renderEq()});
+ box.querySelectorAll('[data-interaction-eq]').forEach(b=>b.onclick=()=>{DROP.active=false;++cameraFlight;PRESENT.overview=false;focusEq(b.dataset.interactionEq)});
+}
+const interactionRenderEq=renderEq;renderEq=function(){interactionRenderEq();interactionRender()};
+const interactionBar=document.createElement('div');interactionBar.id='valveHypothesisBar';interactionBar.hidden=true;interactionBar.innerHTML='<b>阀门推演模式（模拟推演，非实测）</b><span id="valveHypothesisSummary"></span><button id="valveHypothesisReset">恢复设计状态</button><button id="valveHypothesisExit">退出</button>';stEl.append(interactionBar);
+el('valveHypothesisReset').onclick=()=>resetValveHypothesis();el('valveHypothesisExit').onclick=()=>resetValveHypothesis();
+function openValveHypothesis(id){if(!VALVES[id])return;if(PRESENT.active)exitDemo();pauseTour();stopAuto();DROP.active=false;DROP.playing=false;interactionStopTrace(false);const s=PIPE_INTERACTION;if(!s.active)s.previous={sel:UI.sel,pipe:UI.selPipe,tab:UI.tab,scroll:el('pEq').scrollTop};s.valve=id;UI.sel=null;UI.selPipe=VALVES[id].pipe;highlight();switchTab('pEq');renderEq();if(mobileLayout())setSheet(true)}
+function interactionSave(){return {pipes:animatedPipes.map(p=>({p:p,on:p.on,visible:p.flow.visible})),valves:Object.keys(VALVES).map(id=>({id:id,open:VALVES[id].open,target:VALVES[id].animTarget,angle:VALVES[id].hnd&&VALVES[id].hnd.rotation.y})),anim:ANIM.pipes.map(a=>({a:a,flow:a.flow,speed:a.speed,offset:a.offset,visible:a.visible})),handles:ANIM.valves.map(a=>({a:a,angle:a.angle,target:a.target,from:a.from,elapsed:a.elapsed}))}}
+function hypothesizeValve(id,open){
+ const s=PIPE_INTERACTION;if(!VALVES[id])return;interactionStopTrace(false);if(!s.active){s.saved=interactionSave();s.active=true;interactionCaptureColors();s.graph=interactionGraph();s.designStates={};s.saved.valves.forEach(v=>s.designStates[v.id]=v.open);s.baseline=INTERACTION_GRAPH.supply(s.graph,s.designStates,interactionStep())}
+ setValve(id,open);s.valve=id;const alive=INTERACTION_GRAPH.supply(s.graph,undefined,interactionStep());s.dead=new Set(Array.from(s.baseline).filter(k=>!alive.has(k)));
+ s.saved.pipes.forEach(r=>{r.p.on=r.on&&!s.dead.has(r.p.id)});ANIM.pipes.forEach(a=>{if(s.dead.has(a.id)){a.flow=0;a.speed=0;a.visible=false}});
+ const deadDevices=new Set();s.dead.forEach(id=>(PIPES[id].connections||[]).forEach(c=>deadDevices.add(c.eq)));s.devices=Array.from(deadDevices);s.alarms=INTERACTION_GRAPH.alarms(Array.from(s.dead),alarmSnapshot().items);
+ interactionTint();syncFlowAppearance();interactionBar.hidden=false;el('valveHypothesisSummary').textContent='断流 '+s.dead.size+' 段 / '+s.devices.length+' 台 · 风险 '+s.alarms.length+' 条（见右侧设备管路）';renderEq();wakeRender();
+}
+function resetValveHypothesis(render){const s=PIPE_INTERACTION;interactionStopTrace(false);if(s.saved){s.saved.pipes.forEach(r=>{r.p.on=r.on;r.p.flow.visible=r.visible});s.saved.valves.forEach(v=>{setValve(v.id,v.open);const a=VALVES[v.id];a.animTarget=v.target;if(a.hnd)a.hnd.rotation.y=v.angle});s.saved.anim.forEach(r=>{const a=r.a;a.flow=r.flow;a.speed=r.speed;a.offset=r.offset;a.visible=r.visible;a.pipe.dt.offset.x=r.offset});s.saved.handles.forEach(r=>{const a=r.a;a.angle=r.angle;a.target=r.target;a.from=r.from;a.elapsed=r.elapsed});interactionRestoreColors();if(s.previous){UI.sel=s.previous.sel;UI.selPipe=s.previous.pipe}}
+ s.active=false;s.saved=null;s.valve=null;s.dead.clear();s.devices=[];s.alarms=[];s.base.clear();s.graph=null;interactionBar.hidden=true;syncFlowAppearance();if(render!==false){highlight();if(s.previous&&s.previous.tab)switchTab(s.previous.tab);renderEq();if(s.previous)el('pEq').scrollTop=s.previous.scroll||0}s.previous=null;wakeRender()}
+function interactionClear(){resetValveHypothesis(false)}
+// 所有改变设计/工况的既有入口，在原函数前复位。后续I3/M模块可复用beforeChange。
+const interactionApply=applyStep;applyStep=function(st){interactionClear();return interactionApply(st)};
+const interactionOpsStart=opsStart;opsStart=function(kind){interactionClear();return interactionOpsStart(kind)};
+const interactionRebuild=rebuild;rebuild=function(){interactionClear();const r=interactionRebuild();interactionRegisterPicks();return r};
+const interactionScenario=scenarioRecalculate;scenarioRecalculate=function(force){interactionClear();return interactionScenario(force)};
+function interactionVisualCall(fn,args){const s=PIPE_INTERACTION,active=!!(s.trace||s.active);if(s.guard)return fn.apply(null,args);s.guard=true;if(active){interactionRestoreColors();if(s.saved)s.saved.pipes.forEach(r=>r.p.on=r.on)}try{return fn.apply(null,args)}finally{if(active){interactionCaptureColors();if(s.saved)s.saved.pipes.forEach(r=>r.p.on=r.on&&!s.dead.has(r.p.id));interactionTint()}s.guard=false}}
+// 合并箭头仍复用同一数据纹理；只在追踪期间按缓存集合压低非路径透明度。
+const interactionSyncFlow=syncFlowAppearance;syncFlowAppearance=function(){interactionSyncFlow();const s=PIPE_INTERACTION;if(!s.trace||!ANIM.data)return;for(let i=0;i<ANIM.pipes.length;i++)if(!s.path.has(ANIM.pipes[i].id))ANIM.data[i*4+3]=Math.round(ANIM.data[i*4+3]*.15)};
+const interactionDetails=updateModelDetails;updateModelDetails=function(force){const count=MODEL_DETAILS.created;interactionDetails(force);if(PIPE_INTERACTION.trace&&count!==MODEL_DETAILS.created)interactionHighlightEq()};
+const interactionOpsVisual=opsVisual;opsVisual=function(){return interactionVisualCall(interactionOpsVisual,arguments)};
+const interactionQuality=refreshWaterQuality;refreshWaterQuality=function(){return interactionVisualCall(interactionQuality,arguments)};
+// 点选设备/总览/返回列表、空白或Esc都结束追踪；推演的退出按钮完整复位。
+const interactionSelect=selectEq;selectEq=function(id){interactionStopTrace(false);PIPE_INTERACTION.valve=null;return interactionSelect(id)};UI.selEq=selectEq;
+const interactionOverview=overview;overview=function(){interactionStopTrace(false);PIPE_INTERACTION.valve=null;return interactionOverview()};
+document.addEventListener('keydown',ev=>{if(ev.key==='Escape'){resetValveHypothesis();renderEq()}});
+document.addEventListener('click',ev=>{const b=ev.target.closest('[data-act="eqclear"]');if(b){interactionStopTrace(false);PIPE_INTERACTION.valve=null;renderEq()}});
+function interactionRegisterPick(o,data){o.traverse(part=>Object.assign(part.userData,data))}
+function interactionRegisterPicks(){if(ANIM.mesh)ANIM.mesh.raycast=THREE.Mesh.prototype.raycast;animatedPipes.forEach(p=>{p.flow.userData.pipe=p.id});Object.keys(VALVES).forEach(id=>interactionRegisterPick(VALVES[id].g,{valve:id,pipe:VALVES[id].pipe,accessory:true}));}
+interactionRegisterPicks();
+// 仅把现有合并流向层的射线落点映射回原管；不新建拾取代理几何。
+function interactionFlowHit(hit){const g=hit.object.geometry,a=g&&g.attributes.flowSlot;if(hit.object!==ANIM.mesh||!a||!Number.isInteger(hit.faceIndex))return null;const index=g.index?g.index.getX(hit.faceIndex*3):hit.faceIndex*3,slot=Math.floor(a.getX(index)*ANIM.width);return ANIM.pipes[slot]&&ANIM.pipes[slot].visible?ANIM.pipes[slot].id:null}
+function interactionPick(hits){
+ for(const h of hits){const o=h.object;if(o.userData.valve){openValveHypothesis(o.userData.valve);return true}if(o.userData.signal)return false;const id=o.userData.pipe||interactionFlowHit(h);if(id){tracePipe(id);return true}if(o.userData.eq)return false}
+ interactionStopTrace();PIPE_INTERACTION.valve=null;renderEq();return false;
+}
+const interactionStyle=document.createElement('style');interactionStyle.textContent='#pipeInteraction{border-bottom:1px solid var(--bd);padding-bottom:10px;margin-bottom:10px;overflow-wrap:anywhere}#pipeInteraction h3{color:#71d8d0}#pipeInteraction small{display:block;color:var(--mu);font-size:11px}.interactionPath{line-height:2.1}.interactionPath button{font-size:11px;padding:3px 5px;white-space:normal}#valveHypothesisBar{position:absolute;top:86px;left:12px;right:12px;z-index:28;background:var(--cd);color:var(--tx);border:1px solid #58bdb2;border-radius:7px;padding:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px}#valveHypothesisBar[hidden]{display:none}#valveHypothesisSummary{flex:1}#valveDeadPipes{font-size:11px;max-height:100px;overflow:auto}@media(max-width:1000px){#valveHypothesisBar{top:8px;left:6px;right:6px;font-size:11px}#valveHypothesisBar button{min-height:36px}#pipeInteraction button{min-height:36px}}';document.head.append(interactionStyle);
+// 手机入口折入既有“更多工具”；桌面直接点模型，保持原tab数量/布局。
+const interactionMore=document.createElement('button');interactionMore.id='pipeInteractionOpen';interactionMore.textContent='管道追踪 / 阀门推演';interactionMore.onclick=()=>{switchTab('pEq');setSheet(true);if(!el('pipeInteractionHint'))el('pEq').insertAdjacentHTML('afterbegin','<p id="pipeInteractionHint">点击三维管道追踪；点击阀体或手柄开关推演。Esc / 空白退出追踪。</p>')};el('mobileExtraBody').append(interactionMore);
+const interactionMoreStyle=document.createElement('style');interactionMoreStyle.textContent='#pipeInteractionOpen{display:none}@media(max-width:1000px){#pipeInteractionOpen{display:block;min-height:44px}}';document.head.append(interactionMoreStyle);
+window.__pipeInteraction={state:()=>({trace:PIPE_INTERACTION.trace,active:PIPE_INTERACTION.active,valve:PIPE_INTERACTION.valve,dead:Array.from(PIPE_INTERACTION.dead),devices:PIPE_INTERACTION.devices,alarms:PIPE_INTERACTION.alarms}),trace:tracePipe,stop:interactionStopTrace,toggle:hypothesizeValve,reset:resetValveHypothesis,openValve:openValveHypothesis,registerPick:interactionRegisterPick,beforeChange:interactionClear};
+
+/* I3：设备专用局部裁剪。只在开启时分配内部补件和材质；原对象/材质引用完整恢复。 */
+const SECTION={on:false,axis:'x',position:0,flip:false,plane:new THREE.Plane(),saved:[],extras:[],helper:null,handle:null,drag:null,bounds:new THREE.Box3(),target:'F-101'};
+const SECTION_TEXT={
+ 'F-101':['承托砾石 0.2–0.4 m','石英砂 0.4–0.8 m','无烟煤 0.3–0.5 m'],
+ 'F-102':['承托砾石 0.2–0.4 m','活性炭 1.0–1.5 m'],
+ 'S-101':['承托层 0.1–0.3 m','树脂 1.0–1.2 m'],
+ 'F-103':['滤芯阵列（数量沿用配置）'],
+ 'RO-101':['膜卷 / 进水格网','产水中心管'], 'RO-201':['膜卷 / 进水格网','产水中心管'],
+ 'EDI-301':['淡室 / 浓室','离子交换膜','电极板']};
+function sectionMaterial(object){
+ const old=object.material,copy=m=>{const c=m.clone();c.clippingPlanes=(m.clippingPlanes||[]).concat([SECTION.plane]);c.clipIntersection=false;c.side=THREE.DoubleSide;c.transparent=false;c.opacity=1;c.depthWrite=true;c.needsUpdate=true;return c};
+ object.material=Array.isArray(old)?old.map(copy):copy(old);SECTION.saved.push({object:object,material:old,visible:object.visible});
+ object.userData.sectionClipped=true;
+}
+function sectionLabel(g,text,p){
+ const m=new THREE.Sprite(new THREE.SpriteMaterial({map:textTex(text,512,64,'#123147','#e1f7ff',24),depthTest:false,depthWrite:false}));
+ m.position.copy(p);m.scale.set(1.5,.19,1);m.userData.sectionLabel=text;m.userData.basis='J4 / J5：假设，可改';m.raycast=function(){};m.renderOrder=12;g.add(m);
+}
+function sectionExtras(e){
+ if(e.sectionInner)return e.sectionInner;
+ const g=new THREE.Group();g.name='剖切内部示意 '+e.tag;g.userData.kind='sectionInterior';g.userData.eq=e.tag;g.userData.basis='J4 / J5';
+ const mat=(c)=>new THREE.MeshStandardMaterial({color:c,roughness:.72,side:THREE.DoubleSide});
+ if(e.kind==='skid'){
+  const s=e.skid,roll=mat(0xc8a77a),grid=mat(0x7baba8),tube=mat(0xdceaf2);
+  for(let i=0;i<s.nT;i++)for(let k=0;k<s.ne;k++){
+   const x=s.X(.21+k*1.046+.508),y=s.yv,z=s.Zi(i);
+   // 半圆膜卷/格网露出轴心；1.016m与每壳ne直接来自现有skid，不增加膜数量。
+   [roll,grid,roll].forEach((m,j)=>{const b=new THREE.Mesh(new THREE.CylinderGeometry(.098-j*.018,.098-j*.018,1.016,8,1,true,0,Math.PI),m);b.rotation.z=Math.PI/2;b.position.set(x,y,z);g.add(b)});
+   const c=cylX(.019,1.016,tube,x,y,z,12);g.add(c);
+   if(k===0)sectionLabel(g,(i+1)+'号壳：'+s.ne+'支膜元件',V3(x,y+.34,z));
+  }
+ }else if(e.kind==='edi'){
+  const a=mat(0x64b9ce),b=mat(0xd19a78),mem=mat(0xc9d8e4),electrode=mat(0x718699);
+  e.mods.forEach((m,i)=>{
+   for(let k=0;k<16;k++){const z=-.16+k*.021;g.add(box(.36,1.0,.013,k%2?a:b,m.cx,.855,z));if(k<15)g.add(box(.36,1.0,.004,mem,m.cx,.855,z+.01))}
+   [-1,1].forEach(s=>g.add(box(.38,1.02,.012,electrode,m.cx,.855,s*.177)));
+   if(i===0){sectionLabel(g,'淡室 / 浓室 / 离子交换膜',V3(m.cx,1.65,0));sectionLabel(g,'两端电极板 · 层数为示意',V3(m.cx,.15,0))}
+  });
+ }
+ if(e.kind==='filter'){
+  const names=SECTION_TEXT[e.tag]||[];
+  (e.inner||[]).slice(0,names.length).forEach((m,i)=>sectionLabel(g,names[i]+'（假设）',m.position.clone().add(V3(0,0,e.R*.25))));
+ }else if(e.kind==='cf')sectionLabel(g,SECTION_TEXT['F-103'][0],e.ports.ctr.clone().add(V3(0,.8,0)));
+ else if(e.kind==='tank'||e.kind==='chem')sectionLabel(g,'液位水体 · 既有示意液位',e.ports.ctr.clone());
+ mergeStaticParts(g,new Set());
+ g.traverse(m=>{if(m.isMesh){m.userData.eq=e.tag;m.userData.kind='sectionInterior';m.material.clippingPlanes=[SECTION.plane];m.userData.sectionClipped=true;m.raycast=detailVisibleRaycast}});
+ e.g.add(g);g.traverse(o=>{o.updateMatrix();o.matrixAutoUpdate=false});g.updateMatrixWorld(true);e.sectionInner=g;SECTION.extras.push(g);g.visible=false;return g;
+}
+function sectionBuildHelper(){
+ const g=new THREE.Group();g.name='可拖动剖切面';g.userData.kind='sectionHelper';
+ const m=new THREE.Mesh(new THREE.PlaneGeometry(1,1),new THREE.MeshBasicMaterial({color:0xc2e6ef,transparent:true,opacity:.11,depthWrite:false,side:THREE.DoubleSide}));m.raycast=function(){};g.add(m);
+ const h=new THREE.Mesh(new THREE.SphereGeometry(.13,12,8),new THREE.MeshBasicMaterial({color:0x88d7e6,depthTest:false}));h.userData.kind='sectionHandle';h.renderOrder=15;g.add(h);
+ SECTION.helper=g;SECTION.handle=h;SECTION.sheet=m;scene.add(g);g.traverse(o=>{o.updateMatrix();o.matrixAutoUpdate=false});g.updateMatrixWorld(true);
+}
+function sectionUpdate(){
+ const s=SECTION,n=V3();n[s.axis]=s.flip?-1:1;s.plane.set(n,-s.position*n[s.axis]);
+ if(s.helper){const e=EQ[s.target]||EQ['F-101'],b=new THREE.Box3();e.shells.forEach(m=>b.expandByObject(m));const p=b.getCenter(V3()),size=b.getSize(V3());p[s.axis]=s.position;s.helper.position.copy(p);s.helper.quaternion.setFromUnitVectors(V3(0,0,1),n);
+  const width=s.axis==='x'?Math.max(2,size.z+1):Math.max(2,size.x+1),height=s.axis==='y'?Math.max(2,size.z+1):Math.max(2,size.y+1);
+  s.sheet.scale.set(width,height,1);s.handle.position.set(width*.5,0,0);s.sheet.updateMatrix();s.handle.updateMatrix();s.helper.updateMatrix();s.helper.updateMatrixWorld(true);
+ }
+ s.extras.forEach(g=>g.traverse(o=>{if(o.isSprite)o.visible=g.userData.eq===s.target}));
+ const input=el('sectionPosition');input.value=s.position;el('sectionReadout').textContent=s.axis.toUpperCase()+' = '+s.position.toFixed(2)+' m';wakeRender();
+}
+function sectionRange(){
+ const s=SECTION,b=s.bounds;b.makeEmpty();Object.keys(EQ).forEach(k=>(EQ[k].shells||[]).forEach(m=>b.expandByObject(m)));
+ const input=el('sectionPosition');input.setAttribute('min',b.min[s.axis]-.5);input.setAttribute('max',b.max[s.axis]+.5);input.step=.01;
+}
+function sectionEndDrag(){const s=SECTION;if(!s.drag)return;controls.enabled=s.drag.enabled;s.drag=null;wakeRender()}
+function sectionSet(on){
+ const s=SECTION;on=!!on;if(on===s.on)return;sectionEndDrag();
+ if(on){
+  if(!s.initialized){const e=EQ[UI.sel]||EQ[s.target],p=e.ports.ctr.clone().applyMatrix4(e.g.matrixWorld);s.flip=camera.position[s.axis]>p[s.axis];s.initialized=true}
+  s.on=true;s.rendererClip=renderer.localClippingEnabled;renderer.localClippingEnabled=true;
+  Object.keys(EQ).forEach(k=>{const e=EQ[k];if(!e.shells.length)return;(e.shells||[]).forEach(sectionMaterial);
+   const custom=e.kind==='skid'||e.kind==='edi';(e.inner||[]).forEach(m=>{sectionMaterial(m);m.visible=!custom});if(e.water){sectionMaterial(e.water);e.water.material.transparent=true;e.water.material.opacity=.38;e.water.visible=e.kind==='tank'||e.kind==='chem'}
+   const g=sectionExtras(e);g.visible=true;g.traverse(o=>{if(o.isMesh){o.material.clippingPlanes=[s.plane];o.material.needsUpdate=true}});
+  });
+  if(!s.helper)sectionBuildHelper();s.helper.visible=true;sectionRange();sectionFocus(UI.sel&&EQ[UI.sel]?UI.sel:s.target);
+ }else{
+  s.on=false;s.saved.forEach(x=>{const mats=Array.isArray(x.object.material)?x.object.material:[x.object.material];mats.forEach(m=>m.dispose());x.object.material=x.material;x.object.visible=x.visible;delete x.object.userData.sectionClipped});s.saved.length=0;
+  s.extras.forEach(g=>{g.visible=false;g.traverse(o=>{if(o.isMesh){o.material.clippingPlanes=null;o.material.needsUpdate=true}})});if(s.helper)s.helper.visible=false;renderer.localClippingEnabled=s.rendererClip;
+ }
+ if(PIPE_INTERACTION.trace)interactionHighlightEq();
+ el('sectionPanel').hidden=!on;el('sectionToggle').classList.toggle('on',on);el('sectionToggle').setAttribute('aria-pressed',String(on));wakeRender();
+}
+function sectionFocus(id){const s=SECTION,e=EQ[id];if(!e)return;s.target=id;const p=e.ports.ctr.clone().applyMatrix4(e.g.matrixWorld);if(e.kind==='edi'&&s.axis==='x')p.x=e.mods[Math.floor(e.mods.length/2)].cx+e.g.position.x;s.position=p[s.axis];el('sectionTarget').value=id;sectionUpdate()}
+function sectionHits(hits){
+ if(!SECTION.on)return hits;
+ for(let i=hits.length-1;i>=0;i--){const h=hits[i],o=h.object;let visible=true;for(let p=o;p;p=p.parent)if(!p.visible){visible=false;break}
+  if(!visible||o.userData.kind==='sectionHandle'||o.userData.sectionClipped&&SECTION.plane.distanceToPoint(h.point)<-1e-6)hits.splice(i,1);
+ }return hits;
+}
+// 同一个事件入口过滤后再交Run A；hover及其他真实Three射线也遵循裁剪/可见性。
+const sectionIntersect=THREE.Raycaster.prototype.intersectObjects;
+THREE.Raycaster.prototype.intersectObjects=function(objects,recursive,target){const h=sectionIntersect.call(this,objects,recursive,target);return sectionHits(h)};
+const sectionCut=cutEq;cutEq=function(e,on){if(SECTION.on)sectionSet(false);return sectionCut(e,on)};
+const sectionRebuild=rebuild;rebuild=function(){sectionSet(false);const s=SECTION;s.extras.forEach(g=>g.traverse(m=>{if(m.material){if(m.material.map)m.material.map.dispose();m.material.dispose()}}));s.extras.length=0;return sectionRebuild()};
+const sectionUI=document.createElement('div');sectionUI.id='sectionPanel';sectionUI.hidden=true;sectionUI.innerHTML='<div class="row"><b>剖切与透视</b><button id="sectionClose">关闭</button></div><label>设备 <select id="sectionTarget"></select></label><label>轴 <select id="sectionAxis"><option value="x">X</option><option value="y">Y</option><option value="z">Z</option></select></label> <button id="sectionFlip">翻转</button><input id="sectionPosition" type="range" aria-label="剖切面位置"><output id="sectionReadout"></output><p title="J4 / J5：公开资料与保留的原模型；各层范围为假设，可改">内部结构为示意，层厚为典型设计值/假设，非本项目实测。拖动浅蓝球手柄可移动剖切面。J4 / J5</p><p title="J6 / J7 / J8 / J9">近景管道：法兰对、弯头、落地管托、介质色环与静态流向标。J6–J9；常温室内水管不加保温。支距/支座尺寸为假设，可改。</p>';
+el('st').append(sectionUI);
+const sectionButton=document.createElement('button');sectionButton.id='sectionToggle';sectionButton.textContent='剖切';sectionButton.title='I3 · J4/J5 内部示意，非实测';sectionButton.onclick=()=>sectionSet(!SECTION.on);
+function sectionPlace(){(mobileLayout()?el('mobileExtraBody'):el('tgl')).append(sectionButton)}sectionPlace();window.addEventListener('resize',sectionPlace);
+Object.keys(EQ).filter(k=>EQ[k].shells.length).forEach(k=>{const o=document.createElement('option');o.value=k;o.textContent=k+' '+EQ[k].name;el('sectionTarget').append(o)});
+el('sectionClose').onclick=()=>sectionSet(false);el('sectionTarget').onchange=e=>{sectionFocus(e.target.value);focusEq(e.target.value)};
+el('sectionAxis').onchange=e=>{SECTION.axis=e.target.value;sectionRange();sectionFocus(SECTION.target)};
+el('sectionPosition').oninput=e=>{SECTION.position=+e.target.value;sectionUpdate()};el('sectionFlip').onclick=()=>{SECTION.flip=!SECTION.flip;sectionUpdate()};
+const sectionStyle=document.createElement('style');sectionStyle.textContent='#sectionPanel{position:absolute;z-index:29;left:12px;top:130px;width:286px;max-height:calc(100% - 150px);overflow:auto;padding:12px;border:1px solid #70b9ca;background:var(--cd);color:var(--tx);border-radius:8px;font-size:12px}#sectionPanel[hidden]{display:none}#sectionPanel input{display:block;width:100%;margin:10px 0}#sectionPanel select{max-width:205px}#sectionPanel p{font-size:11px;line-height:1.6}#sectionPanel .row{justify-content:space-between}@media(max-width:1000px){#sectionPanel{top:8px;left:6px;width:min(286px,calc(100% - 36px));max-height:45%}#sectionPanel p{font-size:13px}#sectionPanel button,#sectionPanel select{min-height:44px}}';document.head.append(sectionStyle);
+const sectionRay=new THREE.Raycaster(),sectionMouse=new THREE.Vector2(),sectionDragPlane=new THREE.Plane(),sectionPoint=V3(),sectionDelta=V3();
+function sectionPointerRay(e){const r=cvEl.getBoundingClientRect();sectionMouse.set((e.clientX-r.left)/r.width*2-1,1-(e.clientY-r.top)/r.height*2);sectionRay.setFromCamera(sectionMouse,camera)}
+cvEl.addEventListener('pointerdown',e=>{
+ const s=SECTION;if(!s.on)return;sectionPointerRay(e);s.helper.updateMatrixWorld(true);
+ // 直接对手柄做raycast；通用拾取会排除此控制件。
+ const hits=[];THREE.Mesh.prototype.raycast.call(s.handle,sectionRay,hits);if(!hits.length)return;
+ ++cameraFlight;s.drag={enabled:controls.enabled,start:s.position};controls.enabled=false;
+ sectionDragPlane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(sectionDelta),hits[0].point);sectionRay.ray.intersectPlane(sectionDragPlane,sectionPoint);s.drag.point=sectionPoint.clone();
+ cvEl.setPointerCapture(e.pointerId);e.preventDefault();e.stopImmediatePropagation();
+},true);
+cvEl.addEventListener('pointermove',e=>{const s=SECTION;if(!s.drag)return;sectionPointerRay(e);if(sectionRay.ray.intersectPlane(sectionDragPlane,sectionPoint)){const input=el('sectionPosition');s.position=Math.max(+input.min,Math.min(+input.max,s.drag.start+sectionPoint[s.axis]-s.drag.point[s.axis]));sectionUpdate()}e.preventDefault();e.stopImmediatePropagation()},true);
+['pointerup','pointercancel','lostpointercapture'].forEach(type=>cvEl.addEventListener(type,e=>{if(!SECTION.drag)return;sectionEndDrag();if(cvEl.hasPointerCapture&&cvEl.hasPointerCapture(e.pointerId))cvEl.releasePointerCapture(e.pointerId);e.stopImmediatePropagation()},true));
+window.__sectionView={set:sectionSet,focus:sectionFocus,update:sectionUpdate,filterHits:sectionHits,state:()=>({on:SECTION.on,axis:SECTION.axis,position:SECTION.position,flip:SECTION.flip,target:SECTION.target,dragging:!!SECTION.drag,labels:SECTION.extras.filter(g=>g.visible).reduce((a,g)=>{g.traverse(o=>{if(o.userData.sectionLabel)a.push(o.userData.sectionLabel)});return a},[])})};
+
+/* M1：5批InstancedMesh；首次近景才建，按设备细节相同距离/15%回滞裁减。
+   附件不登记PIPES，不改变任何中心线。instanceId经真实raycast映射到原管。 */
+const PIPE_DETAIL={group:null,batches:[],pose:new Float64Array([Infinity,Infinity,Infinity]),selection:undefined,on:false,records:0,elbows:0,supports:[],enabled:true,anchor:new THREE.Vector3()};
+const PIPE_DETAIL_RULE={spacing:dn=>dn<=32?.8:dn<=65?1.0:1.2,range:1.0,band:.15,
+ flange:{15:95,20:105,25:115,32:140,40:150,50:165,65:185,80:200,100:220,125:250,150:285,200:340,250:405,300:460}};
+function pipeDetailSegmentBox(a,b,box){
+ let lo=0,hi=1;for(const k of ['x','y','z']){const d=b[k]-a[k];if(Math.abs(d)<1e-9){if(a[k]<box.min[k]||a[k]>box.max[k])return false}else{let x=(box.min[k]-a[k])/d,y=(box.max[k]-a[k])/d;if(x>y){const t=x;x=y;y=t}lo=Math.max(lo,x);hi=Math.min(hi,y);if(lo>hi)return false}}return true;
+}
+function pipeDetailBuild(){
+ const d=PIPE_DETAIL;if(d.group)return;
+ const group=new THREE.Group();group.name='近景管道附件';group.userData.kind='pipeDetail';d.group=group;PADD(group);
+ const rings=new THREE.LatheGeometry([new THREE.Vector2(.58,-.5),new THREE.Vector2(1,-.5),new THREE.Vector2(1,.5),new THREE.Vector2(.58,.5)],8),torus=new THREE.RingGeometry(.94,1.06,8);torus.rotateX(-Math.PI/2);
+ const geos=[rings,torus,new THREE.BoxGeometry(1,1,1),new THREE.CylinderGeometry(1,1,1,8,1,true),new THREE.ConeGeometry(1,1,4)];
+ const rows=[[],[],[],[],[]],matrices=new THREE.Matrix4(),orient=new THREE.Quaternion(),up=V3(0,1,0);
+ const push=(kind,id,p,axis,scale,color,center)=>{orient.setFromUnitVectors(up,axis);matrices.compose(p,orient,scale);rows[kind].push({pipe:id,matrix:matrices.clone(),center:(center||p).clone(),color:color||0xaabcca,color3:new THREE.Color(color||0xaabcca),source:kind<2?'J6':kind===2?'J7':'J8'})};
+ const boxes=[];Object.keys(EQ).forEach(k=>{const e=EQ[k];e.shells.forEach(m=>{m.updateMatrixWorld(true);(m.isInstancedMesh&&window.__scale3D?scaleObjectBoxes(m):[new THREE.Box3().setFromObject(m)]).forEach(b=>boxes.push(b.expandByScalar(.025)))});if(e.kind==='edi')e.mods.forEach(m=>boxes.push(new THREE.Box3(V3(m.cx-.26,.28,-.23).add(e.g.position),V3(m.cx+.26,1.45,.23).add(e.g.position))))});
+ const pipes=animatedPipes;
+ const safe=(parts,parent)=>parts.every(part=>{
+  const bb=new THREE.Box3().setFromCenterAndSize(part.p,part.scale);if(boxes.some(b=>b.intersectsBox(bb)))return false;
+  return pipes.every(p=>{if(p===parent)return true;const b=bb.clone().expandByScalar(p.od/2+.008);for(let i=1;i<p.pts.length;i++)if(pipeDetailSegmentBox(p.pts[i-1],p.pts[i],b))return false;return true});
+ });
+ pipes.forEach(p=>{
+  const radius=(PIPE_DETAIL_RULE.flange[p.dn]||Math.max(p.dn*1.5,95))/2000;
+  const flange=(pos,t,sign)=>{
+   // 同已有端面配成一对；两薄盘加一个低多边形螺栓圈，尺寸为外观示意。
+   [-1,1].forEach(k=>{const q=pos.clone().addScaledVector(t,sign*(.024+k*.012));push(0,p.id,q,t,V3(radius,.018,radius));push(1,p.id,q.clone().addScaledVector(t,k*.0105),t,V3(radius*.78,radius*.78,radius*.78),0x596f80)});
+  };
+  (p.connections||[]).forEach(c=>{const q=pipeAt(p,c.end?p.len:0);flange(q.p,q.t,c.end?-1:1)});
+  p.valves.forEach(id=>{const v=VALVES[id],half=({bf:.06+.0004*p.dn,mot:.07+.0004*p.dn,ball:.14+.0015*p.dn,chk:.14+.0016*p.dn,glb:.16+.002*p.dn,gate:.1,sol:.1+.001*p.dn}[v.type]||.12)/2;[-1,1].forEach(s=>{const q=pipeAt(p,v.at+s*(half+.025));flange(q.p,q.t,s)})});
+  // 全部原工艺管已由roundedPath(true)生成圆弧弯头，登记说明而不复制中心线。
+  let elbows=0;for(let i=1;i<p.pts.length-1;i++){const a=p.pts[i].clone().sub(p.pts[i-1]).normalize(),b=p.pts[i+1].clone().sub(p.pts[i]).normalize();if(a.dot(b)<.9999)elbows++}d.elbows+=elbows;
+  // 每根短管至少一处标识；长管间距<=4m为可改视觉假设。流向随当前p.dir事件更新。
+  const n=Math.max(1,Math.ceil(p.len/4));for(let i=0;i<n;i++){
+   const at=(i+.5)*p.len/n,q=pipeAt(p,at),color=MEDIA[p.bw?'bw':p.med].c,band=Math.min(PIPE_DETAIL_RULE.band,p.len*.3);
+   push(3,p.id,q.p,q.t,V3(p.od*.525,band,p.od*.525),color);
+   const mark=q.p.clone().addScaledVector(q.t,Math.min(p.len*.18,band*.7+.055));mark.addScaledVector(Math.abs(q.t.y)>.9?V3(0,0,1):V3(0,1,0),p.od*.59);
+   if(!p.standby){push(4,p.id,mark,q.t.clone().multiplyScalar(p.dir||1),V3(.018,.065,.008),0xe0f2f5);const row=rows[4][rows[4].length-1];row.direction=p.dir||1;row.at=at;row.axis=q.t.clone();row.position=mark;}
+  }
+  // 只在真实水平直段布管托；冲突位置略去并明确不是施工支架设计。
+  for(let j=1;j<p.pts.length;j++){
+   const a=p.pts[j-1],b=p.pts[j],len=a.distanceTo(b);if(Math.abs(a.y-b.y)>.001||len<.5)continue;
+   const count=Math.max(1,Math.ceil(len/PIPE_DETAIL_RULE.spacing(p.dn))),t=b.clone().sub(a).normalize();
+   for(let k=0;k<count;k++){
+    const q=a.clone().lerp(b,(k+.5)/count);if(q.y<p.od*.6+.08)continue;
+    if(p.valves.some(id=>VALVES[id].g.position.distanceTo(q)<.25)||p.insts.some(id=>INSTS[id].g.position.distanceTo(q)<.2))continue;
+    // 原机房为无顶平台；架空管也落地支承，避免凭空悬挂。后续M4有屋顶时可换吊架。
+    const height=q.y-p.od/2-.022,foot=V3(q.x,.014,q.z),post=V3(q.x,height/2+.028,q.z),saddle=V3(q.x,height+.014,q.z);
+    const parts=[{p:foot,scale:V3(.16,.028,.16)},{p:post,scale:V3(.028,height,.028)},{p:saddle,scale:V3(Math.abs(t.z)>.5?.14:.065,.025,Math.abs(t.x)>.5?.14:.065)}];
+    if(!safe(parts,p))continue;parts.forEach(part=>push(2,p.id,part.p,up,part.scale,0x60798c,q));d.supports.push({pipe:p.id,point:q.clone(),foot:foot.clone(),height:height,spacing:PIPE_DETAIL_RULE.spacing(p.dn),basis:'J7：假设，可改'});
+   }
+  }
+ });
+ rows.forEach((list,kind)=>{
+  if(!list.length){geos[kind].dispose();return}const material=new THREE.MeshStandardMaterial({color:0xffffff,metalness:kind<2?.65:.1,roughness:.6,side:kind===1?THREE.DoubleSide:THREE.FrontSide});
+  const mesh=new THREE.InstancedMesh(geos[kind],material,list.length);mesh.name=['法兰对','螺栓圈','落地管托','介质色环','静态流向标'][kind];mesh.userData={kind:'pipeDetail',detailType:['flange','bolt','support','band','arrow'][kind],accessory:true,basis:kind<2?'J6':kind===2?'J7':'J8'};
+  mesh.frustumCulled=false;mesh.count=0;const batch={mesh:mesh,rows:list,active:[],kind:kind};d.batches.push(batch);mesh.parent=group; // 五类实例保留拾取/验收语义，实际由单Mesh提交。
+  list.forEach(row=>{row.pick=Object.create(mesh);row.pick.userData={kind:'pipeDetail',pipe:row.pipe,accessory:true,basis:row.source};row.pick.parent=mesh;window.__pipeInteraction.registerPick(row.pick,{pipe:row.pipe,accessory:true});});
+  mesh.raycast=function(rc,hits){if(!this.visible||!group.visible||!this.count)return;const start=hits.length;THREE.InstancedMesh.prototype.raycast.call(this,rc,hits);for(let i=start;i<hits.length;i++){const h=hits[i],row=batch.active[h.instanceId];if(row){h.instanceObject=this;h.object=row.pick}}};
+  d.records+=list.length;
+ });
+ // 每个实例静态烘焙，切换近景范围时拷贝预分配数组；每帧不建对象。
+ let capacity=0;d.batches.forEach(b=>b.rows.forEach(r=>{const g=b.mesh.geometry.clone().applyMatrix4(r.matrix).toNonIndexed();r.baked=g;capacity+=g.attributes.position.count}));
+ const merged=new THREE.BufferGeometry();['position','normal','color'].forEach(k=>merged.setAttribute(k,new THREE.BufferAttribute(new Float32Array(capacity*3),3)));merged.setDrawRange(0,0);
+ d.render=new THREE.Mesh(merged,new THREE.MeshStandardMaterial({vertexColors:true,metalness:.35,roughness:.65,side:THREE.DoubleSide}));d.render.name='近景管道附件 单批';d.render.userData={kind:'pipeDetail',accessory:true};d.render.frustumCulled=false;
+ d.render.raycast=function(rc,hits){if(!group.visible)return;d.batches.forEach(b=>b.mesh.raycast(rc,hits))};group.add(d.render);
+ group.traverse(o=>{o.updateMatrix();o.matrixAutoUpdate=false});group.updateMatrixWorld(true);
+}
+function pipeDetailUpdate(force){
+ const d=PIPE_DETAIL,cp=camera.position;if(!d.enabled){if(d.group)d.group.visible=false;return}
+ if(!force&&d.pose[0]===cp.x&&d.pose[1]===cp.y&&d.pose[2]===cp.z&&d.selection===UI.sel)return;
+ d.pose[0]=cp.x;d.pose[1]=cp.y;d.pose[2]=cp.z;d.selection=UI.sel;
+ const anchor=d.anchor,e=UI.sel&&EQ[UI.sel];if(e&&e.kind!=='skid')anchor.copy(e.ports.ctr).applyMatrix4(e.g.matrixWorld);else anchor.copy(controls.target);
+ const range=PIPE_DETAIL_RULE.range*(MOB?.82:1)*(d.on?1.15:1);let near=false;
+ // 与设备近景同一门槛，总览不创建；管道附件还需距自身<=range。
+ for(const item of MODEL_DETAILS.items)if(cp.distanceToSquared(item.center)<item.range*item.range){near=true;break}
+ if(near&&!d.group)pipeDetailBuild();d.on=near;if(!d.group)return;d.group.visible=near;if(!near)return;
+ let changed=!!force;d.batches.forEach(batch=>{batch.rows.forEach(row=>{const on=!PIPES[row.pipe].hiddenStandby&&anchor.distanceToSquared(row.center)<=range*range&&!(MOB&&UI.sel&&!(PIPES[row.pipe].connections||[]).some(c=>c.eq===UI.sel));if(row.on!==on){row.on=on;changed=true}})});if(!changed)return;
+ d.batches.forEach(batch=>{const mesh=batch.mesh,a=batch.active;a.length=0;batch.rows.forEach(row=>{if(!row.on)return;const i=a.length;a.push(row);mesh.setMatrixAt(i,row.matrix);mesh.setColorAt(i,row.color3)});mesh.count=a.length;mesh.visible=!!a.length;mesh.instanceMatrix.needsUpdate=true;if(mesh.instanceColor)mesh.instanceColor.needsUpdate=true});
+ const g=d.render.geometry;let offset=0;d.batches.forEach(b=>b.active.forEach(r=>{const a=r.baked.attributes,n=a.position.count;g.attributes.position.array.set(a.position.array,offset*3);g.attributes.normal.array.set(a.normal.array,offset*3);for(let j=offset;j<offset+n;j++){g.attributes.color.array[j*3]=r.color3.r;g.attributes.color.array[j*3+1]=r.color3.g;g.attributes.color.array[j*3+2]=r.color3.b}offset+=n}));
+ g.setDrawRange(0,offset);Object.keys(g.attributes).forEach(k=>g.attributes[k].needsUpdate=true);
+}
+function pipeDetailDirections(){
+ const d=PIPE_DETAIL;if(!d.group)return;d.batches.forEach(batch=>{if(batch.kind!==4)return;batch.rows.forEach(row=>{const dir=PIPES[row.pipe].dir||1;if(dir===row.direction)return;row.direction=dir;row.matrix.compose(row.position,new THREE.Quaternion().setFromUnitVectors(V3(0,1,0),row.axis.clone().multiplyScalar(dir)),V3(.018,.065,.008));row.baked.dispose();row.baked=batch.mesh.geometry.clone().applyMatrix4(row.matrix).toNonIndexed()})});pipeDetailUpdate(true);
+}
+const pipeDetailLOD=updateModelDetails;updateModelDetails=function(force){pipeDetailLOD(force);pipeDetailUpdate(force)};
+const pipeDetailStep=applyStep;applyStep=function(s){const r=pipeDetailStep(s);pipeDetailDirections();return r};
+const pipeDetailRebuild=rebuild;rebuild=function(){const d=PIPE_DETAIL;d.batches.forEach(b=>{b.mesh.material.dispose();b.rows.forEach(r=>r.baked.dispose())});if(d.render){d.render.material.dispose();d.render=null}d.group=null;d.batches.length=0;d.supports.length=0;d.records=0;d.elbows=0;d.on=false;d.pose.fill(Infinity);return pipeDetailRebuild()};
+window.__pipeDetails={update:pipeDetailUpdate,enabled:value=>{PIPE_DETAIL.enabled=!!value;pipeDetailUpdate(true)},state:()=>({created:!!PIPE_DETAIL.group,visible:!!(PIPE_DETAIL.group&&PIPE_DETAIL.group.visible),records:PIPE_DETAIL.records,elbows:PIPE_DETAIL.elbows,supports:PIPE_DETAIL.supports.length,batches:PIPE_DETAIL.batches.map(b=>({type:b.mesh.userData.detailType,count:b.mesh.count,total:b.rows.length,visible:b.mesh.visible})),insulation:'J9：室内常温水，无已定义热水/室外段，不加保温'})};
+
+const pipeDetailRenderEq=renderEq;renderEq=function(){const r=pipeDetailRenderEq();if(UI.selPipe&&PIPE_DETAIL.group&&!el('pipeDetailBasis')){const panel=el('pipeInteraction')||el('pEq');const n=document.createElement('p');n.id='pipeDetailBasis';n.title='J6：HG/T 20592 PN16外径；J7：支距DN≤32/≤65/更大=0.8/1.0/1.2m，假设，可改，范围0.8–1.2/1.0–1.5/1.2–2.0m；J8：150mm色环方式，沿用场景配色；J9：室内常温不加保温';n.textContent='近景附件依据 J6–J9：法兰/弯头/落地管托/介质色环/流向标。支距和构造为假设，可改；非施工设计。';panel.append(n)}return r};
+
+/* M2：显式选项仅改变三台连续泵数量；默认路径逐字沿用原BOM，新增示意表不计价。 */
+INVEST.options.standby=false;
+const standbyInvestmentBuild=INVEST.build;INVEST.build=function(s,p,insts,scenario){return standbyInvestmentBuild(s,p,insts.filter(i=>!INSTS[i.id]||!INSTS[i.id].visualOnly),scenario)};
+const standbyInvestmentReset=INVEST.reset;INVEST.reset=function(){standbyInvestmentReset();INVEST.options.standby=false};
+const standbyInvestmentRender=renderInvestment;renderInvestment=function(){standbyInvestmentRender();if(el('investmentStandby'))return;
+ const box=document.createElement('div');box.id='investmentStandby';box.innerHTML='<label title="J10 / P4 / F1–F9：三台泵数量1→2，单价同档；连带费率按原公式；备用不同时运行，装机口径不变"><input id="investmentStandbyInput" type="checkbox" '+(INVEST.options.standby?'checked':'')+'>备用泵计入投资（1用1备）</label><p>默认未计备用泵投资；3D 图示为 1用1备。新增底座/隔振/软接/表及MCC仅示意，未单独询价；未计价不代表零成本。装机功率沿用原同时配置口径，备用不同时运行。</p>';
+ investmentPane.prepend(box);el('investmentStandbyInput').onchange=e=>{window.__pipeInteraction.beforeChange();INVEST.options.standby=e.target.checked;renderInvestment()};
+};
+const standbyInvestmentStyle=document.createElement('style');standbyInvestmentStyle.textContent='#investmentStandby input[type=checkbox]{width:auto;min-height:18px;margin-right:6px;vertical-align:middle}#roomInfo input[type=checkbox]{width:auto;vertical-align:middle}@media(max-width:1000px){#roomInfo{left:6px;right:6px!important;top:8px!important;max-width:none!important;box-sizing:border-box;max-height:65vh!important}}';document.head.append(standbyInvestmentStyle);
+
+/* Run C：一批常显、一道近景合批；示意附件不进入工艺/投资求解。J10–J15。 */
+const ROOM_MODEL={show:true,rows:[],meshes:[],pumps:[],branches:[],valves:[],cabinets:[],trays:[],cables:[],zones:[],pose:new Float64Array(7).fill(Infinity),frustum:new THREE.Frustum(),matrix:new THREE.Matrix4(),revision:0};
+const ROOM_AREA={low:2.5,high:4,chemLow:8,chemHigh:12,electricLow:6,electricHigh:10};
+function roomEstimate(s){
+ const rows=[],add=(id,w,l,n)=>rows.push({id:id,width:w,length:l,count:n||1,area:w*l*(n||1)}),tankD=(v,r)=>Math.ceil(Math.cbrt(4*v/(.9*Math.PI*r))*10)/10;
+ [['raw',1.3],['mid',1.2],['pure',1.4]].forEach(a=>{const d=tankD(s.tanks[a[0]].V,a[1]);add('水箱 '+a[0],d,d)});
+ Object.keys(s.filters).forEach(k=>{const f=s.filters[k];add(k,f.D,f.D,f.n)});add('盐箱',1,1);
+ ['ro1','ro2'].forEach(k=>{const r=s[k];add(k,r.perVessel*1.046+.35+.5,r.vessels*.46+.8)});
+ add('EDI（不含电源柜）',s.edi.n*.64+.18,.72);const cfD={3:.168,5:.219,7:.219,9:.273,12:.325,15:.356,19:.4,23:.457,30:.5,40:.6};add('保安过滤器',cfD[s.cf.perHousing],cfD[s.cf.perHousing],s.cf.housings);
+ Object.keys(s.pumps).forEach(k=>{const p=s.pumps[k],stages=Math.max(2,Math.ceil(p.headM/8)),dm=.16+.04*Math.sqrt(p.motor),dp=.14+.024*Math.sqrt(p.motor);add(k+' 1用1备',.4+.04*stages+.22+.30+.0975*Math.sqrt(p.motor)+.4,Math.max(dm,dp)+.28,2)});
+ const cipD=tankD(Math.max(2,s.cip.tankMin[1]),1.2);add('CIP储液箱（需求）',cipD,cipD);add('CIP/反洗辅助泵与过滤器包络',2.5,1.2,2);
+ const footprint=rows.reduce((a,r)=>a+r.area,0),q=s.Q,chem=[ROOM_AREA.chemLow+q*.06,ROOM_AREA.chemHigh+q*.10],electric=[ROOM_AREA.electricLow+q*.03,ROOM_AREA.electricHigh+q*.05];
+ return {Q:q,footprint:footprint,rows:rows,factor:[ROOM_AREA.low,ROOM_AREA.high],chemical:chem,electrical:electric,low:footprint*ROOM_AREA.low+chem[0]+electric[0],high:footprint*ROOM_AREA.high+chem[1]+electric[1],basis:'J15：估算，非设计；布置系数及分区面积假设，可改'};
+}
+function roomModelPart(g,color,data,near,center){
+ const row={geometry:g.toNonIndexed?g.toNonIndexed():g,color:new THREE.Color(color),data:Object.assign({kind:'roomAccessory',accessory:true,basis:'J10–J15'},data),near:!!near,center:(center||V3()).clone()};
+ row.geometry.computeBoundingSphere();if(row.geometry!==g)g.dispose();ROOM_MODEL.rows.push(row);return row;
+}
+function roomModelBox(w,h,d,p,color,data,near,center){return roomModelPart(new THREE.BoxGeometry(w,h,d).translate(p.x,p.y,p.z),color,data,near,center)}
+function roomModelLine(a,b,r,color,data,near,center){const mesh=cylAxis(a,b,r,MT.ss,8);mesh.updateMatrix();const g=mesh.geometry.clone().applyMatrix4(mesh.matrix);mesh.geometry.dispose();return roomModelPart(g,color,data,near,center)}
+function roomModelTray(a,b,near,center){
+ const mid=a.clone().lerp(b,.5),len=a.distanceTo(b),x=Math.abs(a.x-b.x)>.001;
+ if(Math.abs(a.y-b.y)>.001){roomModelLine(a,b,.045,0x7b9fae,{basis:'J13'},near,center);return}
+ roomModelBox(x?len:.14,.018,x?.14:len,mid,0x7b9fae,{basis:'J13'},near,center);
+ [-1,1].forEach(s=>roomModelBox(x?len:.012,.06,x?.012:len,mid.clone().add(V3(x?0:s*.067,.03,x?s*.067:0)),0x7b9fae,{basis:'J13'},near,center));
+}
+function roomModelMerge(){
+ const m=ROOM_MODEL;m.meshes.length=0;
+ [false,true].forEach(near=>{const rows=m.rows.filter(r=>r.near===near);if(!rows.length)return;const capacity=rows.reduce((a,r)=>a+r.geometry.attributes.position.count,0),g=new THREE.BufferGeometry();['position','normal','color'].forEach(k=>g.setAttribute(k,new THREE.BufferAttribute(new Float32Array(capacity*3),3)));g.setAttribute('uv',new THREE.BufferAttribute(new Float32Array(capacity*2),2));g.setDrawRange(0,0);
+  const opts={vertexColors:true,metalness:.15,roughness:.7};if(near){const atlas=document.createElement('canvas');atlas.width=512;atlas.height=256;const ctx=atlas.getContext('2d');ctx.fillStyle='#ffffff';ctx.fillRect(0,0,512,256);ctx.drawImage(animDial('bar',0,60).map.image,256,0);opts.map=new THREE.CanvasTexture(atlas)}const material=new THREE.MeshStandardMaterial(opts);if(near){material.onBeforeCompile=shader=>{shader.fragmentShader=shader.fragmentShader.replace('#include <map_fragment>','#ifdef USE_MAP\nif(vUv.x>=.5){vec4 texelColor=texture2D(map,vUv);texelColor=mapTexelToLinear(texelColor);diffuseColor*=texelColor;}\n#endif')};material.customProgramCacheKey=()=>'room-dial-only-v1'}const mesh=new THREE.Mesh(g,material);mesh.name=near?'泵附件与接线 近景合批':'备用泵与柜体桥架 常显合批';mesh.userData={kind:'roomAccessory',accessory:true};mesh.frustumCulled=false;const batch={mesh:mesh,rows:rows,active:[],near:near};
+  rows.forEach(r=>{r.pick=Object.create(mesh);r.pick.parent=mesh;r.pick.userData=r.data;if(r.data.pipe)window.__pipeInteraction.registerPick(r.pick,{pipe:r.data.pipe,accessory:true})});
+  mesh.raycast=function(rc,hits){if(!mesh.visible)return;const start=hits.length;THREE.Mesh.prototype.raycast.call(mesh,rc,hits);for(let j=start;j<hits.length;j++){const hit=hits[j],row=batch.active.find(r=>hit.faceIndex*3>=r.first&&hit.faceIndex*3<r.end);if(row){hit.object=row.pick}else hits[j].object=mesh}};
+  m.meshes.push(batch);PADD(mesh);
+ });roomModelUpdate(true);
+}
+function roomModelUpdate(force){
+ const m=ROOM_MODEL,p=camera.position,q=camera.quaternion;if(!force&&Math.abs(m.pose[0]-p.x)+Math.abs(m.pose[1]-p.y)+Math.abs(m.pose[2]-p.z)+Math.abs(m.pose[3]-q.x)+Math.abs(m.pose[4]-q.y)+Math.abs(m.pose[5]-q.z)+Math.abs(m.pose[6]-q.w)<1e-5)return;m.pose[0]=p.x;m.pose[1]=p.y;m.pose[2]=p.z;m.pose[3]=q.x;m.pose[4]=q.y;m.pose[5]=q.z;m.pose[6]=q.w;camera.updateMatrixWorld(true);m.frustum.setFromProjectionMatrix(m.matrix.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
+ m.meshes.forEach(b=>{let changed=!!force;b.rows.forEach(r=>{const on=m.frustum.intersectsSphere(r.geometry.boundingSphere)&&!(r.data.standby&&!m.show)&&(!b.near||p.distanceToSquared(r.center)<=3.2*3.2);if(r.on!==on){r.on=on;changed=true}});if(!changed)return;let offset=0;b.active.length=0;const g=b.mesh.geometry;b.rows.forEach(r=>{if(!r.on)return;const a=r.geometry.attributes,n=a.position.count;r.first=offset;r.end=offset+n;b.active.push(r);g.attributes.position.array.set(a.position.array,offset*3);g.attributes.normal.array.set(a.normal.array,offset*3);for(let j=0;j<n;j++){g.attributes.uv.array[(offset+j)*2]=r.dial?.5+a.uv.getX(j)*.5:.1;g.attributes.uv.array[(offset+j)*2+1]=r.dial?a.uv.getY(j):.5}for(let j=offset;j<offset+n;j++){g.attributes.color.array[j*3]=r.color.r;g.attributes.color.array[j*3+1]=r.color.g;g.attributes.color.array[j*3+2]=r.color.b}offset+=n});g.setDrawRange(0,offset);g.attributes.position.needsUpdate=true;g.attributes.normal.needsUpdate=true;g.attributes.color.needsUpdate=true;g.attributes.uv.needsUpdate=true;b.mesh.visible=offset>0});
+ m.pumps.forEach(e=>{if(e.standby)e.g.visible=m.show});m.branches.forEach(p=>p.hiddenStandby=!m.show);m.valves.forEach(v=>v.g.visible=m.show);LABELS.forEach(l=>{if(EQ[l.tag]&&EQ[l.tag].standby)l.vis=m.show});
+}
+function roomModelShow(on){window.__pipeInteraction.beforeChange();ROOM_MODEL.show=!!on;roomModelUpdate(true);pipeDetailUpdate(true);wakeRender()}
+function roomModelProxyEq(tag,name,kind,position,size,extras){
+ const g=new THREE.Group();g.position.copy(position);const holder=box(size.x,size.y,size.z,MT.ss,0,size.y/2,0);holder.visible=false;holder.raycast=function(){};g.add(holder);g.userData.eq=tag;PADD(g);
+ const e=regEq(Object.assign({tag:tag,key:tag,name:name,kind:kind,g:g,shells:[],ports:{ctr:V3(0,size.y/2,0)},top:size.y,info:{basis:'J10–J15'},visualOnly:true},extras));return e;
+}
+function roomModelStandby(id,z,src,dst){
+ const m=ROOM_MODEL,a=EQ[id],d=a.dims,sign=Math.cos(a.g.rotation.y)>0?1:-1,L=d.Lp+.22+d.Lm,origin=V3(a.g.position.x,0,z),world=v=>V3(origin.x+sign*v.x,v.y,z+sign*v.z),data={eq:id+'B',standby:true,basis:'J10'};
+ const e=roomModelProxyEq(id+'B',a.name+'备用（停机）','pump',origin,V3(L+.4,a.top,d.Dm+.28),{dims:d,standby:true,run:false});e.g.children[0].position.x=L/2;e.g.rotation.y=a.g.rotation.y;e.ports={suc:a.ports.suc.clone(),dis:a.ports.dis.clone(),ctr:a.ports.ctr.clone()};e.g.updateMatrixWorld(true);e.key=e.tag;
+ const yc=a.ports.ctr.y;m.pumps.push(e);
+ roomModelLine(world(V3(0,yc,0)),world(V3(d.Lp,yc,0)),d.Dp/2,0xa4bfca,data);
+ roomModelLine(world(V3(d.Lp+.22,yc,0)),world(V3(L,yc,0)),d.Dm/2,0x325f88,data);
+ roomModelBox(.22,d.Dp,.22,world(V3(d.Lp+.11,yc,0)),0x6e8b9e,data);
+ roomModelLine(world(V3(-.12,yc,0)),world(V3(0,yc,0)),.04,0xa4bfca,data);
+ roomModelLine(world(a.ports.dis),world(V3(d.Lp-.1,yc,0)),.034,0xa4bfca,data);
+ for(let k=0;k<3;k++){const th=k*Math.PI*2/3;roomModelLine(world(V3(L+.01,yc,0)),world(V3(L+.01,yc+Math.sin(th)*d.Dm*.36,Math.cos(th)*d.Dm*.36)),.012,0xb7cad5,data)}
+ const mainS=PIPES[src],mainD=PIPES[dst],s=world(e.ports.suc),out=world(e.ports.dis);let sp,dp;
+ if(id==='P-101'){const t=V3(mainS.pts[1].x,.5,-5.25);sp=[t,V3(-14,.5,t.z),V3(-14,.5,z),V3(-13.4,.5,z),V3(-13.4,s.y,z),s];const tee=V3(out.x,1.6,a.g.position.z);dp=[out,V3(out.x,1.6,z),tee]}
+ else if(id==='P-201'){const t=mainS.pts[0].clone().lerp(mainS.pts[1],.22);sp=[t,V3(t.x,t.y,z),s];dp=[out,V3(out.x,1.25,z),V3(out.x,1.25,a.g.position.z)]}
+ else {const t=V3(18,s.y,3.8);sp=[t,V3(19.1,s.y,3.8),V3(19.1,s.y,z),s];dp=[out,V3(out.x,1.3,z),V3(out.x,1.3,a.g.position.z)]}
+ if(window.__scaleBuilding&&window.__scaleBuilding()){const t=id==='P-202'?mainS.pts[mainS.pts.length-2].clone().lerp(mainS.pts[mainS.pts.length-1],.3):mainS.pts[0].clone().lerp(mainS.pts[1],.45),y=t.y+.22;sp=[t,V3(t.x,y,t.z),V3(t.x,y,z),V3(s.x-sign*.45,y,z),V3(s.x-sign*.45,s.y,z),s];const tee=mainD.pts[0].clone().lerp(mainD.pts[1],.6);dp=[out,V3(out.x,tee.y,z),V3(tee.x,tee.y,z),tee]}
+ const pipes=[];[sp,dp].forEach((pts,i)=>{const p=sizingAddPipe({id:id.replace('-','')+'B.'+(i?'d':'s'),med:(i?mainD:mainS).med,dn:(i?mainD:mainS).dn,ss:(i?mainD:mainS).ss,pts:pts,Q:0,from:i?e.tag:(mainS.from||src),to:i?(mainD.to||dst):e.tag,name:e.name+(i?'出口支管':'吸入支管')});p.standby=true;p.sourceMain=i?dst:src;p.tee=pts[i?pts.length-1:0].clone();p.connections=[{eq:e.tag,port:i?'dis':'suc',end:i?0:1,point:i?out.clone():s.clone()}];p.tube.parent.remove(p.tube);p.flow.geometry.dispose();p.flow.geometry=new THREE.BufferGeometry();p.flow.geometry.setIndex([]);p.flow.geometry.setAttribute('position',new THREE.BufferAttribute(new Float32Array(0),3));p.flow.geometry.setAttribute('uv',new THREE.BufferAttribute(new Float32Array(0),2));
+  const path=roundedPath(pts,Math.max(p.od*1.6,.1),true),g=compactTube(new THREE.TubeGeometry(path,Math.max(6,Math.ceil(p.len*3)),p.od/2,6,false));const row=roomModelPart(g,MEDIA[p.med].c,{pipe:p.id,standby:true,basis:'J10'},false);window.__pipeInteraction.registerPick(row.pick||p.tube,{pipe:p.id,accessory:true});m.branches.push(p);pipes.push(p);
+ });
+ [['s','gate',pipes[0],.55,true],['d','gate',pipes[1],.72,false],['nr','check',pipes[1],.42,true]].forEach(v=>{const p=v[2],q=pipeAt(p,p.len*v[3]),tag=e.tag+'.'+v[0],g=new THREE.Group();g.position.copy(q.p);PADD(g);const valve={id:tag,tag:tag,name:e.name+(v[0]==='nr'?'出口止回阀':v[0]==='s'?'吸入隔离阀':'出口隔离阀'),type:v[1]==='check'?'chk':'gate',pipe:p.id,g:g,hnd:null,lamp:{material:MT.green},dn:p.dn,at:p.len*v[3],open:v[4],pos:q.p.clone(),standby:true,visualOnly:true};VALVES[tag]=valve;p.valves.push(tag);m.valves.push(valve);
+  const meta={pipe:p.id,valve:tag,standby:true,basis:'J10'};roomModelLine(q.p.clone().addScaledVector(q.t,-.07),q.p.clone().addScaledVector(q.t,.07),p.od*.8,0x839eaa,meta);if(v[0]==='nr'){roomModelBox(.07,.11,.06,q.p.clone().add(V3(0,p.od*.8,0)),0x74b8bc,meta)}else{roomModelLine(q.p,q.p.clone().add(V3(0,.16,0)),.012,0x91adbc,meta);roomModelBox(.14,.025,.06,q.p.clone().add(V3(0,.18,0)),v[4]?0x4dbb9e:0xbc6965,meta)}
+ });
+ addLabel({html:'<b>'+e.tag+'</b> 备用 · 停机',pos:origin.clone().add(V3(sign*L/2,a.top+.35,0)),tag:e.tag,kind:'eq',maxD:10});return e;
+}
+function roomModelPumpParts(e){
+ if(!e.standby&&e.g.children[0]&&e.g.children[0].isMesh){const plate=e.g.children[0];plate.scale.y=1/6;plate.position.y=.095;plate.updateMatrix();plate.userData.pumpAccessory='basePlate';plate.userData.basis='J10'}
+ const d=e.dims,L=d.Lp+.22+d.Lm,W=Math.max(d.Dm,d.Dp)+.28,c=e.ports.ctr.clone().applyMatrix4(e.g.matrixWorld),world=p=>p.clone().applyMatrix4(e.g.matrixWorld),meta={eq:e.tag,standby:!!e.standby,basis:'J10 / J11'},m=ROOM_MODEL,baseMeta=Object.assign({},meta,{component:'base'}),isolationMeta=Object.assign({},meta,{component:'isolator'}),flexMeta=Object.assign({},meta,{component:'flex'}),gaugeMeta=Object.assign({},meta,{component:'gauge'});
+ // 槽钢：两条开口U型梁+端横梁，四角减振垫。尺寸随原泵包络。
+ [-1,1].forEach(s=>{const z=s*(W/2-.035);[[-.026,.055],[.026,.055],[0,.025]].forEach((a,i)=>roomModelBox(L+.35,i===2?.018:.06,i===2?.07:.016,world(V3(L/2,a[1],z+a[0])),0x607e92,baseMeta,true,c));[-.1,L+.1].forEach(x=>roomModelBox(.12,.035,.12,world(V3(x,.019,z)),0x273d48,isolationMeta,true,c))});[-.1,L+.1].forEach(x=>roomModelBox(.06,.06,W,world(V3(x,.05,0)),0x607e92,baseMeta,true,c));
+ const suction=world(e.ports.suc),dis=world(e.ports.dis),axis=V3(-1,0,0).transformDirection(e.g.matrixWorld);
+ const inlet=m.branches.find(p=>p.to===e.tag)||animatedPipes.find(p=>(p.connections||[]).some(a=>a.eq===e.tag&&a.port==='suc')),outlet=m.branches.find(p=>p.from===e.tag)||animatedPipes.find(p=>(p.connections||[]).some(a=>a.eq===e.tag&&a.port==='dis'));if(outlet)gaugeMeta.pipe=outlet.id;
+ [ [suction,axis],[dis,V3(0,1,0)] ].forEach((pair,index)=>{const flexPick=Object.assign({},flexMeta,{pipe:(index?outlet:inlet)?(index?outlet:inlet).id:undefined});const r=Math.max(.033,d.Dp*.22),p=pair[0].clone().addScaledVector(pair[1],.09);roomModelLine(p.clone().addScaledVector(pair[1],-.075),p.clone().addScaledVector(pair[1],.075),r*1.3,0x253d45,flexPick,true,c);[-1,1].forEach(s=>roomModelLine(p.clone().addScaledVector(pair[1],s*.066-.008),p.clone().addScaledVector(pair[1],s*.066+.008),r*1.7,0xacc1cd,flexPick,true,c))});
+ const pipe=m.branches.find(p=>p.from===e.tag)||animatedPipes.find(p=>(p.connections||[]).some(a=>a.eq===e.tag&&a.port==='dis'))||PIPES[{'P-101':'M.in','P-102':'BW.h0','P-201':'HPD','P-202':'MID.dis','P-401':'CIP.dis'}[e.tag]],at=dis.clone().add(V3(0,.28,0)),id=e.tag+'.PI';
+ if(pipe){const g=new THREE.Group();g.position.copy(at);PADD(g);INSTS[id]={id:id,tag:id,type:'PI',name:e.name+'出口压力表（示意）',unit:'bar',pipe:pipe.id,g:g,pos:at,read:()=>e.standby?0:(OPS.values||SIM.signals())[{'P-101':'RAW.pi','P-201':'p1','P-202':'p2','P-401':'CIP.pi'}[e.tag]],visualOnly:true,standby:!!e.standby};pipe.insts.push(id)}
+ roomModelLine(dis,at,.009,0xa4bfca,gaugeMeta,true,c);roomModelLine(at.clone().add(V3(0,0,-.014)),at.clone().add(V3(0,0,.014)),.048,0x8da8b8,gaugeMeta,true,c);
+ // 复用原INSTS表盘纹理并烘焙入共享图集将在近景批中显示刻度；红针为零/已有测点示意。
+ const dial=animDial('bar',0,60);const circle=new THREE.CircleGeometry(.041,8).translate(at.x,at.y,at.z+.016);roomModelPart(circle,0xffffff,gaugeMeta,true,c).dial=true;
+ const value=e.standby?0:((OPS.values||SIM.signals())[{'P-101':'RAW.pi','P-201':'p1','P-202':'p2','P-401':'CIP.pi'}[e.tag]]||0),angle=(225-270*value/60)*Math.PI/180;roomModelLine(at.clone().add(V3(0,0,.019)),at.clone().add(V3(Math.cos(angle)*.031,Math.sin(angle)*.031,.019)),.003,0xc35555,gaugeMeta,true,c);
+ e.pumpAccessories={base:2,isolators:4,flex:2,gauge:id,basis:'J10 / J11',gaugeZero:!!e.standby};
+}
+function roomModelCabinet(e,position,w,h,d){
+ e.g.position.copy(position);e.g.rotation.y=0;e.g.children.slice().forEach(o=>{e.g.remove(o);o.traverse(x=>{if(x.geometry)x.geometry.dispose()})});const placeholder=box(w,h,d,MT.ss,0,h/2,0);placeholder.visible=false;placeholder.raycast=function(){};e.g.add(placeholder);e.top=h;e.ports.ctr=V3(0,h/2,0);e.g.updateMatrixWorld(true);
+ const meta={eq:e.tag,basis:'J12'},p=position,m=ROOM_MODEL; // 各柜同一批，实例面号回到EQ。
+ roomModelBox(w,h,d,p.clone().add(V3(0,h/2,0)),0x708e9f,meta);roomModelBox(w-.08,h-.10,.012,p.clone().add(V3(0,h/2,d/2+.007)),0xa7bac4,meta);roomModelBox(w*.5,.25,.014,p.clone().add(V3(0,1.6,d/2+.02)),0x153c51,meta);[-.18,0,.18].forEach((x,i)=>roomModelBox(.055,.055,.02,p.clone().add(V3(x,1.25,d/2+.025)),i===1?0xbc7475:0x4fc7a9,meta));e.cabinetDims=[w,d,h];m.cabinets.push(e.tag);
+}
+function roomModelFloor(){
+ const m=ROOM_MODEL;m.zones=[{name:'加药间',x:6.2,z:-4,w:4.2,d:1.9},{name:'加药间 · NaOH',x:16,z:3.3,w:1.8,d:1.8},{name:'配电室',x:-19,z:1.5,w:2.8,d:5},{name:'主工艺区',x:0,z:-1,w:30,d:12}];
+ if(window.__scaleBuilding&&window.__scaleBuilding())m.zones.forEach(v=>{v.x=scaleSiteX(v.x);v.z=scaleSiteZ(v.z);if(v.name!=='配电室')v.w*=SCALE_VIEW.site;v.d*=SCALE_VIEW.site});
+ const drains=new Map();animatedPipes.forEach(p=>{if(!/排水沟|地漏/.test(p.to))return;const a=p.pts[p.pts.length-1],key=a.z.toFixed(2);if(!drains.has(key))drains.set(key,[a.x-.25,a.x+.25,a.z]);else{const v=drains.get(key);v[0]=Math.min(v[0],a.x-.25);v[1]=Math.max(v[1],a.x+.25)}});m.drainage=Array.from(drains.values());m.corridor={width:1.5,range:[1,1.5],basis:'J14 假设，可改'};
+ if(typeof ROOM==='undefined'||!ROOM.textures)return;
+ ROOM.textures.forEach(t=>{const canvas=t.image,ctx=canvas.getContext('2d');const fx=window.__scaleBuilding&&window.__scaleBuilding()?SCALE_VIEW.site/1.1:1,fz=window.__scaleBuilding&&window.__scaleBuilding()?SCALE_VIEW.site*1.1:1;const x=a=>(a/fx+21)/43*canvas.width,z=a=>(a/fz+10)/18*canvas.height;
+  m.drainage.forEach(v=>{ctx.fillStyle='#122f3b';ctx.fillRect(x(v[0]),z(v[2]-.14),(v[1]-v[0])/(43*fx)*canvas.width,.28/(18*fz)*canvas.height);ctx.strokeStyle='#82a8b6';ctx.lineWidth=1;for(let k=v[0]+.09;k<v[1];k+=.18){ctx.beginPath();ctx.moveTo(x(k),z(v[2]-.13));ctx.lineTo(x(k),z(v[2]+.13));ctx.stroke()}});
+  m.zones.slice(0,3).forEach((v,i)=>{ctx.fillStyle=i===2?'rgba(114,176,210,.12)':'rgba(93,188,165,.13)';ctx.fillRect(x(v.x-v.w/2),z(v.z-v.d/2),v.w/(43*fx)*canvas.width,v.d/(18*fz)*canvas.height);ctx.fillStyle='#c4e2e7';ctx.font='16px sans-serif';ctx.fillText(v.name,x(v.x-v.w/2+.1),z(v.z+v.d/2-.15))});
+  ctx.strokeStyle='#b4d9db';ctx.lineWidth=2;ctx.setLineDash([12,9]);[-.9,.6].forEach(v=>{ctx.beginPath();ctx.moveTo(x(-17),z(v));ctx.lineTo(x(4),z(v));ctx.stroke()});ctx.setLineDash([]);ctx.font='15px sans-serif';ctx.fillStyle='#c0dddd';ctx.fillText('主工艺区 · 主通道 1.5m（示意净宽，J14 假设）',x(-16),z(-.35));
+  [[-7,-5.7],[1,6.7],[12,6.7]].forEach(v=>{ctx.fillText('↓ i=0.5%–1% 假设 J14',x(v[0]),z(v[1]));});t.needsUpdate=true;
+ });
+
+}
+function roomModelBuild(){
+ const m=ROOM_MODEL;m.rows.forEach(r=>r.geometry.dispose());m.meshes.forEach(b=>{if(b.mesh.material.map)b.mesh.material.map.dispose();b.mesh.material.dispose()});['rows','meshes','pumps','branches','valves','cabinets','trays','cables'].forEach(k=>m[k].length=0);m.pose.fill(Infinity);m.revision++;
+ ['P-101','P-102','P-201','P-202','P-401'].forEach(id=>m.pumps.push(EQ[id]));
+ roomModelStandby('P-101',window.__scaleBuilding&&window.__scaleBuilding()?EQ['P-101'].g.position.z-1.8:-5.9,'RAW.suc','M.in');roomModelStandby('P-201',window.__scaleBuilding&&window.__scaleBuilding()?EQ['P-201'].g.position.z-1.5:-3,'HPS','HPD');roomModelStandby('P-202',window.__scaleBuilding&&window.__scaleBuilding()?EQ['P-202'].g.position.z+1.8:6.5,'MID.suc','MID.dis');
+ m.pumps.forEach(e=>{e.g.updateMatrixWorld(true);roomModelPumpParts(e)});
+ ['D-101','D-102','D-103'].forEach(id=>{const e=EQ[id],p=e.g.position.clone().add(V3(.55,.30,.28));roomModelBox(.22,.2,.16,p,0x8eafbc,{eq:id,basis:'D6 / J10'},true,p);roomModelLine(p.clone().add(V3(-.07,.13,0)),p.clone().add(V3(.07,.13,0)),.05,0x37688c,{eq:id,basis:'D6 / J10'},true,p);e.meteringPumps=2});
+ roomModelCabinet(EQ['C-901'],V3(window.__scaleBuilding?scaleSiteX(-19):-19,0,window.__scaleBuilding?scaleSiteZ(.2):.2),.8,2.2,.6);const mcc=roomModelProxyEq('C-902','MCC 低压配电柜','cab',V3(window.__scaleBuilding?scaleSiteX(-19):-19,0,window.__scaleBuilding?scaleSiteZ(1.4):1.4),V3(.8,2.2,.6));roomModelCabinet(mcc,V3(window.__scaleBuilding?scaleSiteX(-19):-19,0,window.__scaleBuilding?scaleSiteZ(1.4):1.4),.8,2.2,.6);
+ const ed=EQ['EDI-301'],dcPos=ed.cab.getWorldPosition(V3());ed.g.children.slice().forEach(o=>{if(o.position.x>ed.tw/2+.3){ed.g.remove(o);o.traverse(v=>{if(v.geometry)v.geometry.dispose()})}});const dc=roomModelProxyEq('EDI-301.DC','EDI 整流电源柜','cab',dcPos.clone().setY(0),V3(.6,1.6,.45));roomModelCabinet(dc,dcPos.clone().setY(0),.6,1.6,.45);
+ m.cabinets.forEach(id=>{const e=EQ[id];e.connected=id==='C-901'?Object.keys(INSTS).filter(k=>!INSTS[k].visualOnly):id==='C-902'?Object.keys(EQ).filter(k=>EQ[k].kind==='pump'):['EDI-301'];e.info={功能:id==='C-901'?'PLC 采集、联锁与HMI':id==='C-902'?'泵电机供电与保护；3D示意未单独计价':'EDI直流整流；对应原BOM EDI-301.DC',依据:'J12；示意，非设计图'};const pos=e.g.position.clone().add(V3(0,e.top+.3,0));const label=LABELS.find(l=>l.tag===id&&l.kind==='eq');if(label)label.pos.copy(pos);else addLabel({html:'<b>'+id+'</b> '+e.name,pos:pos,tag:id,kind:'eq',maxD:12})});
+ // 高位桥架与工艺管分层，竖向细电缆只在近景显示。无真实电气设计含义。
+ const siteX=window.__scaleBuilding?scaleSiteX:x=>x,siteZ=window.__scaleBuilding?scaleSiteZ:z=>z;const trunkA=V3(siteX(-19),5.4,siteZ(-.4)),trunkB=V3(siteX(20),5.4,siteZ(-.4));[[V3(siteX(-19),2.2,siteZ(.2)),trunkA],[trunkA,trunkB]].forEach(a=>{roomModelTray(a[0],a[1],false);m.trays.push({a:a[0],b:a[1],r:a[0].y===a[1].y?.10:.045})});
+ const targets=m.pumps.map(e=>({id:e.tag,point:e.g.localToWorld(V3(e.dims.Lp+.22+e.dims.Lm*.55,e.ports.ctr.y+e.dims.Dm/2+.05,0))}));targets.push({id:'EDI-301.DC',point:dc.g.position.clone().add(V3(0,dc.top,0))});
+ Object.keys(INSTS).filter(k=>!INSTS[k].visualOnly).forEach(k=>{const i=INSTS[k];if(['PT','FT','CE','AE'].indexOf(i.type)>=0)targets.push({id:k,point:i.pos.clone().add(V3(.12,.08,.10))})});
+ targets.forEach(t=>{const a=V3(t.point.x,5.4,siteZ(-.4)),b=V3(t.point.x,5.4,t.point.z+.35);roomModelTray(a,b,true,t.point);m.trays.push({a:a,b:b,r:.10,near:true});const bottom=t.point.clone();roomModelLine(b,bottom,.005,0x6ca9b7,{eq:EQ[t.id]?t.id:undefined,basis:'J13',standby:!!(EQ[t.id]&&EQ[t.id].standby)},true,t.point);m.cables.push({id:t.id,a:b,b:bottom,r:.005})});
+ roomModelMerge();refreshPipeAnimationList();
+}
+const roomModelShadows=batchContactShadows;batchContactShadows=function(){roomModelShadows();roomModelFloor()};
+const roomModelPlant=buildPlant;buildPlant=function(d,z){/* 原末端盲法兰直接挂scene，重建会遗留；只清理该独立端面，随后原plumb重建同一T-301边界。 */scene.children.slice().forEach(o=>{if(o.isMesh&&o.userData.flange&&!o.userData.eq&&!o.userData.pipe&&plantObjs.indexOf(o)<0){scene.remove(o);o.geometry.dispose()}});const r=roomModelPlant(d,z);roomModelBuild();return r};
+// 备用转子已静态烘焙，避免为停机泵额外提交风扇draw。
+const roomModelAnimation=preparePlantAnimation;preparePlantAnimation=function(){const backups=ROOM_MODEL.pumps.filter(e=>e.standby);backups.forEach(e=>e.kind='standby');const visual=Object.keys(INSTS).filter(k=>INSTS[k].visualOnly).map(k=>[k,INSTS[k]]);visual.forEach(a=>delete INSTS[a[0]]);try{roomModelAnimation()}finally{visual.forEach(a=>INSTS[a[0]]=a[1]);backups.forEach(e=>e.kind='pump')}backups.forEach(e=>{e.kind='pump';ANIM.pumps.push({tag:e.tag,eq:e,pivot:new THREE.Group(),running:false,angle:0})})};
+const roomModelPrepare=prepareModelDetails;prepareModelDetails=function(){roomModelPrepare();MODEL_DETAILS.items=MODEL_DETAILS.items.filter(i=>!i.owner.visualOnly)};
+const roomModelLOD=updateModelDetails;updateModelDetails=function(force){roomModelLOD(force);roomModelUpdate(force)};
+const roomModelStep=applyStep;applyStep=function(s){const r=roomModelStep(s);ROOM_MODEL.valves.forEach(v=>setValve(v.id,v.id.endsWith('.s')||v.type==='chk'));return r};
+// 备用手动隔离阀不属于原自动步骤，避免原renderOp按st.open把吸入阀误列为“关闭”。
+const roomModelRenderOperation=renderOp;renderOp=function(){if(typeof VALVE_IDS!=='function')return roomModelRenderOperation();const ids=VALVE_IDS;VALVE_IDS=()=>ids().filter(id=>!VALVES[id].standby);try{const r=roomModelRenderOperation();el('pOp').insertAdjacentHTML('beforeend','<p title="J10：备用隔离状态，未加入原29步自动阀路">备用泵手动隔离阀：吸入开、出口关；备用泵停机。模拟推演，非实测。</p>');return r}finally{VALVE_IDS=ids}};
+const roomModelFocus=focusEq;focusEq=function(id){if(EQ[id]&&EQ[id].visualOnly){const e=EQ[id],p=e.ports.ctr.clone().applyMatrix4(e.g.matrixWorld);camTo([p.x+2,p.y+2,p.z+3,p.x,p.y,p.z],650);return}return roomModelFocus(id)};
+const roomModelRenderEq=renderEq;renderEq=function(){const r=roomModelRenderEq(),e=EQ[UI.sel];if(e&&(e.connected||e.pumpAccessories)){const n=document.createElement('section');n.id='roomEquipmentInfo';n.title=e.connected?'J12 / J13：柜体尺寸与连接示意；非设计图':'J10 / J11：1用1备与底座/隔振/橡胶软接/出口压力表，假设，可改';n.innerHTML=e.connected?'<h4>功能与接线 · 示意，非设计图</h4><p>'+e.info.功能+'</p><p>所连设备/仪表：'+e.connected.map(id=>id+' '+(EQ[id]?EQ[id].name:INSTS[id]?INSTS[id].name:'')).join('、')+'</p><p>柜体宽×深×高 '+e.cabinetDims.join(' × ')+' m；J12。原EDI电源柜外形沿用示意尺寸；MCC未单独计价。</p>':'<h4>泵组附件 J10 / J11</h4><p>槽钢底座、4角减振垫、进出口橡胶软接（GB/T 26121）、出口压力表；近景显示。新增表针为重建时模拟压力快照，非在线测量；反洗泵未计算压力，表盘仅示意。尺寸为假设，可改。'+(e.standby?'备用泵全工况停机；吸入阀开、出口隔离阀关、出口止回阀；表读0。':'P-102/P-401间歇运行，暂不设在线备用（工程惯例，假设）。')+'模拟推演，非实测。</p>';el('pEq').append(n)}return r};
+const roomPanel=document.createElement('div');roomPanel.id='roomInfo';roomPanel.hidden=true;roomPanel.style.cssText='position:absolute;right:12px;top:95px;z-index:26;max-width:360px;max-height:65%;overflow:auto;background:var(--cd);color:var(--tx);padding:12px;border:1px solid var(--bd);border-radius:8px;font-size:12px';stEl.append(roomPanel);
+function roomRenderInfo(){const a=roomEstimate(window.__sizing());roomPanel.innerHTML='<button id="roomClose">关闭</button><h3>机房信息 · 估算，非设计</h3><label title="J10：备用泵始终停机，隐藏同时取消拾取；支管仍纳入几何审计"><input id="roomStandby" type="checkbox" '+(ROOM_MODEL.show?'checked':'')+'>显示备用泵</label><p title="J15：包络占地汇总×布置系数+加药间+配电室；所有分区/系数为假设，可改">Q='+a.Q+' m³/h；机房面积估算 <b id="roomAreaValue">'+a.low.toFixed(1)+'–'+a.high.toFixed(1)+' m²</b><br>设备占地 '+a.footprint.toFixed(2)+' m² × '+a.factor.join('–')+' + 加药间 '+a.chemical.map(v=>v.toFixed(1)).join('–')+' + 配电室 '+a.electrical.map(v=>v.toFixed(1)).join('–')+'。J15：假设，可改；非规范面积指标。平台保留默认演示留白，随J15面积上限同比放大；实际估算范围与演示平台面积分别显示，非建筑设计面积。</p><details><summary>面积参数（假设，可改）与占地清单</summary>'+Object.keys(ROOM_AREA).map(k=>'<label style="display:block" title="J15：low/high为布置系数；分区基数加Q×0.06/0.10、0.03/0.05；假设，可改">'+({low:'布置系数下限',high:'布置系数上限',chemLow:'加药间基数下限 m²',chemHigh:'加药间基数上限 m²',electricLow:'配电室基数下限 m²',electricHigh:'配电室基数上限 m²'}[k])+' <input data-room-area="'+k+'" type="number" min="0" step="0.1" value="'+ROOM_AREA[k]+'" style="width:65px"></label>').join('')+'<button id="roomAreaReset">恢复默认</button><p>'+a.rows.map(r=>r.id+' '+r.width.toFixed(2)+'×'+r.length.toFixed(2)+'×'+r.count).join('；')+' m</p></details><p>J10/J11：连续泵1用1备，吸入开/出口关，备用表为0。P-102/P-401间歇单台，工程惯例，假设；加药装置两台计量泵。</p><p>J12：PLC/MCC柜800×600×2200 mm，厂家常见尺寸；EDI电源柜沿用示意外形。J13：桥架高5.4m（≥2.2m，假设），电缆接线近景显示。均示意，非设计图。</p><p>J14：浅色虚线主通道1.5m、参考1.0–1.5m；坡向原排水沟 i=0.5%–1%；范围为假设，可改，不冒称已满足净距/排水设计。</p>';
+ el('roomStandby').onchange=e=>roomModelShow(e.target.checked);el('roomClose').onclick=()=>roomPanel.hidden=true;roomPanel.querySelectorAll('[data-room-area]').forEach(e=>e.onchange=()=>{const n=Number(e.value),k=e.dataset.roomArea,old=ROOM_AREA[k];if(!Number.isFinite(n)||n<0)return;ROOM_AREA[k]=n;if(ROOM_AREA.low>ROOM_AREA.high||ROOM_AREA.chemLow>ROOM_AREA.chemHigh||ROOM_AREA.electricLow>ROOM_AREA.electricHigh){ROOM_AREA[k]=old;return}roomRenderInfo()});el('roomAreaReset').onclick=()=>{Object.assign(ROOM_AREA,{low:2.5,high:4,chemLow:8,chemHigh:12,electricLow:6,electricHigh:10});roomRenderInfo()};
+}
+const roomModelInfoButton=document.createElement('button');roomModelInfoButton.id='roomInfoOpen';roomModelInfoButton.textContent='机房 / 备用泵';roomModelInfoButton.title='M2 / M3 / M4：机房面积、分区与备用泵显示';roomModelInfoButton.onclick=()=>{roomRenderInfo();roomPanel.hidden=!roomPanel.hidden};const roomAnchor=document.createComment('机房工具桌面位置');el('tgl').append(roomAnchor);
+function roomModelPlace(){if(mobileLayout())el('mobileExtraBody').append(roomModelInfoButton);else roomAnchor.after(roomModelInfoButton)}window.addEventListener('resize',roomModelPlace);roomModelPlace();
+const roomSizingRender=renderSizing;renderSizing=function(){const r=roomSizingRender(),a=roomEstimate(window.__sizing()),text='机房面积估算 '+a.low.toFixed(1)+'–'+a.high.toFixed(1)+' m²（Q='+a.Q+'；估算，非设计；依据J15）。公式/假设参数见“机房 / 备用泵”。';let n=el('sizingRoomArea');if(n&&n.textContent===text)return r;if(!n){n=document.createElement('p');n.id='sizingRoomArea';sizingPane.append(n)}n.title='J15：设备包络面积×布置系数+加药间+配电室；参数假设，可改，机房工具内调整';n.textContent=text;return r};
+window.__roomModel={show:roomModelShow,estimate:()=>roomEstimate(window.__sizing()),state:()=>({show:ROOM_MODEL.show,pumps:ROOM_MODEL.pumps.map(e=>({id:e.tag,standby:!!e.standby,accessories:e.pumpAccessories})),branches:ROOM_MODEL.branches.map(p=>({id:p.id,source:p.sourceMain,tee:p.tee.toArray(),hidden:p.hiddenStandby})),cabinets:ROOM_MODEL.cabinets.map(id=>({id:id,connected:EQ[id].connected,dims:EQ[id].cabinetDims})),trays:ROOM_MODEL.trays.length,cables:ROOM_MODEL.cables.length,zones:ROOM_MODEL.zones,drainage:ROOM_MODEL.drainage,corridor:ROOM_MODEL.corridor,batches:ROOM_MODEL.meshes.map(b=>({near:b.near,visible:b.mesh.visible,triangles:b.mesh.geometry.drawRange.count/3}))})};
+// 模块在原初始化之后载入；走同一重建生命周期，使工况、交互、LOD和动画注册一致。
+window.__pipeInteraction.beforeChange();rebuild();
+
+/* M5：独立几何展示，不写INP/D/Z/SIM；默认仍走原构造链。J16–J18。 */
+const SCALE_VIEW={q:11.4,active:false,building:false,design:null,size:null,snapshot:null,site:1,ms:0,filters:[],room:null,history:[],preview:false,restore:false};
+window.__scaleBuilding=()=>SCALE_VIEW.building;
+const scaleDefaultD=D,scaleDefaultZ=Z,scaleBaseArea=roomEstimate(window.__sizing()),scaleClone=v=>JSON.parse(JSON.stringify(v));
+function scaleSiteX(x){return SCALE_VIEW.building?(x===-19?x+.6:x)*SCALE_VIEW.site:x}
+function scaleSiteZ(z){return SCALE_VIEW.building?z*SCALE_VIEW.site:z}
+// r128的Box3不展开实例；审计/附件显式逐实例求实体盒，不使用整个阵列大盒代替实壳。
+function scaleObjectBoxes(mesh){
+ const out=[],g=mesh.geometry;g.computeBoundingBox();if(!mesh.isInstancedMesh)return [g.boundingBox.clone().applyMatrix4(mesh.matrixWorld)];
+ const a=new THREE.Matrix4(),b=new THREE.Matrix4();for(let i=0;i<mesh.count;i++){mesh.getMatrixAt(i,a);b.multiplyMatrices(mesh.matrixWorld,a);out.push(g.boundingBox.clone().applyMatrix4(b))}return out;
+}
+// 仅纠正r128未支持的实例包围盒；普通对象走原实现，射线仍用真实实例矩阵。
+const scaleExpand=THREE.Box3.prototype.expandByObject;THREE.Box3.prototype.expandByObject=function(o){if(!o.isInstancedMesh)return scaleExpand.call(this,o);o.updateWorldMatrix(false,false);scaleObjectBoxes(o).forEach(b=>this.union(b));o.children.forEach(c=>this.expandByObject(c));return this};
+const scalePrepareDetails=prepareModelDetails;prepareModelDetails=function(){scalePrepareDetails();MODEL_DETAILS.items.forEach(i=>{if(i.owner.scaleInstances)i.owner.detailBounds=new THREE.Box3().setFromObject(i.owner.g).applyMatrix4(new THREE.Matrix4().copy(i.owner.g.matrixWorld).invert())})};
+function scaleInstances(e){
+ const shell=new Set(e.shells),groups=new Map(),replacement=new Map();
+ e.g.children.slice().forEach(m=>{if(!m.isMesh||!m.visible||m.userData.blob||m===e.lamp||m===e.cab||m.children.length)return;
+  const g=m.geometry,key=m.material.uuid+'|'+g.type+'|'+(g.parameters?JSON.stringify(g.parameters):g.uuid)+'|'+shell.has(m);let a=groups.get(key);if(!a){a=[];groups.set(key,a)}a.push(m);
+ });
+ groups.forEach(parts=>{if(parts.length<2)return;const mesh=new THREE.InstancedMesh(parts[0].geometry,parts[0].material,parts.length);mesh.name=e.tag+' 实例阵列';mesh.userData={eq:e.tag,scaleArray:true,keep:!!parts[0].userData.keep,basis:'J16 / J17'};mesh.frustumCulled=false;
+  parts.forEach((m,i)=>{m.updateMatrix();mesh.setMatrixAt(i,m.matrix);replacement.set(m,mesh);e.g.remove(m);if(i&&m.geometry!==parts[0].geometry&&!m.userData.keep)m.geometry.dispose()});e.g.add(mesh);
+ });e.shells=Array.from(new Set(e.shells.map(m=>replacement.get(m)||m)));e.scaleInstances=true;
+}
+const scaleMerge=mergeStaticParts;mergeStaticParts=function(root,excluded){root.traverse(o=>{if(o.isInstancedMesh)excluded.add(o)});return scaleMerge(root,excluded)};
+function scalePosition(o){const n=Object.assign({},o);if(SCALE_VIEW.building){if(n.x!==undefined)n.x=scaleSiteX(n.x);if(n.z!==undefined)n.z=scaleSiteZ(n.z);if(['T-401','P-401','F-401'].indexOf(n.tag)>=0)n.z=Math.max(2.3*SCALE_VIEW.site,-1.5*SCALE_VIEW.site+(SCALE_VIEW.snapshot.ro1.vessels-1)*.32+1.5)}return n}
+const scaleTank=mkTank;mkTank=o=>scaleTank(scalePosition(o));
+const scalePump=mkPump;mkPump=function(o){const n=scalePosition(o);if(SCALE_VIEW.building){const key={'P-101':'raw','P-102':'bw','P-201':'hp1','P-202':'hp2'}[o.tag];if(key){const p=SCALE_VIEW.size.pump[key],base=sizingBaseZ.pump[key],r=Math.cbrt(p.motor/base.motor);n.dims=Object.assign({},base.dims);['Dm','Dp','Lm','Lp'].forEach(k=>n.dims[k]*=r);n.dims.kw=p.motor;n.dims.stages=p.dims.stages}}return scalePump(n)};
+const scaleChem=mkChem;mkChem=o=>scaleChem(scalePosition(o));
+const scaleCabinet=mkCabinet;mkCabinet=o=>scaleCabinet(scalePosition(o));
+const scaleSkid=mkSkid;mkSkid=function(o){if(!SCALE_VIEW.building)return scaleSkid(o);const n=Object.assign({},o,{x0:scaleSiteX(o.x0),z0:scaleSiteZ(o.z0),pitch:.32}),e=scaleSkid(n);scaleInstances(e);return e};
+const scaleEDI=mkEDI;mkEDI=function(o){const e=scaleEDI(scalePosition(o));if(SCALE_VIEW.building)scaleInstances(e);return e};
+const scaleFilter=mkFilter,scaleCF=mkCartridge;
+function scaleFilterBank(o,fn,key){
+ if(SCALE_VIEW.building&&key==='cf')o=Object.assign({},o,{n:SCALE_VIEW.snapshot.cf.perHousing,D:{3:.168,5:.219,7:.219,9:.273,12:.325,15:.356,19:.4,23:.457,30:.5,40:.6}[SCALE_VIEW.snapshot.cf.perHousing]});
+ const first=fn(scalePosition(o));if(!SCALE_VIEW.building||!key)return first;
+ const s=SCALE_VIEW.snapshot,f=key==='cf'?{n:s.cf.housings,D:o.D}:s.filters[key],n=f.n,spacing=Math.max(1.1,f.D+.65),bank=[first];
+ for(let i=1;i<n;i++){const a=scalePosition(o);a.tag=o.tag+'.'+(i+1);a.name=o.name+'并联第'+(i+1)+'台';a.x+=i%2*spacing;a.z-=Math.ceil(i/2)*spacing;const e=fn(a);e.bankParent=first.tag;bank.push(e)}
+ bank.forEach(e=>{e.bankCount=n;e.info.basis='J16 / D9 / D11'});SCALE_VIEW.filters.push({id:first.tag,key:key,count:n,diameter:f.D,units:bank.map(e=>e.tag),spacing:spacing});return first;
+}
+mkFilter=o=>scaleFilterBank(o,scaleFilter,{'F-101':'mmf','F-102':'acf','S-101':'sof'}[o.tag]);
+mkCartridge=o=>scaleFilterBank(o,scaleCF,o.tag==='F-103'?'cf':null);
+const scalePlant=buildPlant;buildPlant=function(d,z){
+ if(!SCALE_VIEW.active)return scalePlant(SCALE_VIEW.restore?scaleDefaultD:d,SCALE_VIEW.restore?scaleDefaultZ:z);
+ const was=SCALE_VIEW.building;SCALE_VIEW.building=true;SCALE_VIEW.filters.length=0;
+ try{return scalePlant(SCALE_VIEW.design,SCALE_VIEW.size)}finally{SCALE_VIEW.building=was}
+};
+function scaleRoom(){
+ const s=SCALE_VIEW,ratio=s.active?s.site:1,fx=s.active?ratio/1.1:1,fz=s.active?ratio*1.1:1;if(ROOM.group){ROOM.group.scale.set(fx,1,fz);ROOM.group.updateMatrix();ROOM.group.updateMatrixWorld(true);}
+ if(ROOM.targetMin){ROOM.targetMin.set(-22*ratio,0,-13*ratio);ROOM.targetMax.set(23*ratio,Math.max(8,s.active?s.size.raw.H+1:8),11*ratio)}controls.maxDistance=66*ratio;
+ s.room={width:43*fx,depth:18*fz,area:774*ratio*ratio,estimate:s.active?roomEstimate(s.snapshot):scaleBaseArea,platformFactor:774/scaleBaseArea.high,basis:'J15 / J18：保留默认平台与面积估算上限之比，假设，可改'};
+}
+function scaleApply(q){
+ q=Number(q);if(!Number.isFinite(q)||q<1||q>100)return false;const s=SCALE_VIEW,start=performance.now();window.__pipeInteraction.beforeChange();sectionSet(false);stopAuto();pauseTour();DROP.playing=false;DROP.active=false;++cameraFlight;UI.sel=null;UI.selPipe=null;
+ s.q=q;s.restore=Math.abs(q-11.4)<1e-8;s.active=Math.abs(q-11.4)>1e-8;
+ if(s.active){s.design=RO.design(Object.assign({},INP,{Q:q}));s.size=RO.size(s.design);const savedD=D;try{D=s.design;s.snapshot=SIZING.snapshot(s.design,SIM.get())}finally{D=savedD;SIM.get()}s.site=Math.max(1,Math.sqrt(roomEstimate(s.snapshot).high/scaleBaseArea.high))}else{s.site=1;s.design=null;s.size=null;s.snapshot=null}
+ const savedDesign=RO.design,savedSize=RO.size,currentD=D,currentZ=Z;RO.design=input=>input===INP?currentD:savedDesign(input);RO.size=input=>input===currentD?currentZ:savedSize(input);try{rebuild()}finally{RO.design=savedDesign;RO.size=savedSize}scaleRoom();s.preview=s.active;s.ms=performance.now()-start;s.history.push({Q:q,ms:s.ms});if(s.history.length>20)s.history.shift();overview();if(UI.tab==='pSizing')renderSizing();if(!roomPanel.hidden)roomRenderInfo();wakeRender();return true;
+}
+const scaleCommit=sizingCommit;sizingCommit=function(values){SCALE_VIEW.preview=false;if(!SCALE_VIEW.active)SCALE_VIEW.restore=false;return scaleCommit(values)};
+const scaleRebuild=rebuild;rebuild=function(){const was=SCALE_VIEW.building;let r;SCALE_VIEW.building=SCALE_VIEW.active;try{r=scaleRebuild()}finally{SCALE_VIEW.building=was}scaleRoom();return r};
+const scaleSizingRender=renderSizing;renderSizing=function(){const oldSizing=window.__sizing;let r;try{if(SCALE_VIEW.preview&&SCALE_VIEW.snapshot)window.__sizing=()=>scaleClone(SCALE_VIEW.snapshot);r=scaleSizingRender()}finally{window.__sizing=oldSizing}const n=document.createElement('section');n.id='scale3DControls';n.title='J16–J18：模拟推演，非实测；设备数量取选型，泵为功率立方根示意比例；只改变几何';n.innerHTML='<h4>设备随规模显示 · 模拟推演，非实测</h4><p>先设定产水量，再应用到3D。当前3D：'+SCALE_VIEW.q+' m³/h。泵体积按电机kW之比、线性尺寸按立方根作示意；水箱沿用0.9有效系数的圆柱公式。依据 J16–J18；布置与尺寸为假设，可改，非施工图。</p><div class="sizingInputs"><button id="scale3DApply">3D 按此规模显示</button><button id="scale3DReset">恢复 11.4 默认</button><button data-scale-q="11.4">11.4 m³/h</button><button data-scale-q="50">50 m³/h</button><button data-scale-q="100">100 m³/h</button></div><p id="scale3DStatus">'+(SCALE_VIEW.ms?'上次重建 '+SCALE_VIEW.ms.toFixed(0)+' ms。':'')+'3D显示不改变水质/运行数据模拟结果；规模选型输入仍沿用原计算规则。</p>';sizingPane.prepend(n);el('scale3DApply').onclick=()=>scaleApply(Number(el('sizingQ').value));el('scale3DReset').onclick=()=>scaleApply(11.4);n.querySelectorAll('[data-scale-q]').forEach(b=>b.onclick=()=>{el('sizingQ').value=b.dataset.scaleQ;scaleApply(Number(b.dataset.scaleQ))});return r};
+window.__scale3D={apply:scaleApply,reset:()=>scaleApply(11.4),state:()=>({Q:SCALE_VIEW.q,active:SCALE_VIEW.active,ms:SCALE_VIEW.ms,site:SCALE_VIEW.site,room:SCALE_VIEW.room,filters:SCALE_VIEW.active?scaleClone(SCALE_VIEW.filters):[['F-101','mmf'],['F-102','acf'],['S-101','sof'],['F-103','cf']].map(a=>({id:a[0],key:a[1],count:1,diameter:EQ[a[0]].R*2,units:[a[0]]})),ro:['RO-101','RO-201'].map(id=>({id:id,vessels:EQ[id].skid.nT,perVessel:EQ[id].skid.ne,array:EQ[id].skid.nvs,instances:EQ[id].shells.filter(m=>m.isInstancedMesh).map(m=>m.count)})),edi:EQ['EDI-301'].mods.length,history:scaleClone(SCALE_VIEW.history)})};
+// 每组并联设备采用独立高位进水、低位出水树状总管；所有支管作为真正PIPES参与原审计。
+function scaleBankPlumb(){
+ SCALE_VIEW.filters.forEach(bank=>{
+  if(bank.count<2)return;const primary=EQ[bank.id],cf=bank.key==='cf',prefix={mmf:'M',acf:'A',sof:'S',cf:'CF'}[bank.key],feed=PIPES[cf?'S.out':prefix+'.vi'],out=PIPES[cf?'CF.out':prefix+'.bot'];
+  const topKey=cf?'in':'top',botKey=cf?'out':'bot',members=bank.units.slice(1).map(id=>EQ[id]),z0=primary.g.position.z;
+  const source=cf?feed.pts[feed.pts.length-2].clone().lerp(feed.pts[feed.pts.length-3],.5):feed.pts[0].clone(),bottom=cf?out.pts[0].clone().lerp(out.pts[1],.65):V3(out.pts[2].x,.22,z0+.6),h=Math.max(primary.top+.55,source.y+.55),low=.08,left=cf?Math.min(source.x,...members.map(e=>portW(e,topKey).x-.25))-.3:source.x,right=Math.max(...members.map(e=>e.g.position.x+e.R))+.5;
+  const add=(id,pts,main,e,key,end)=>{const p=addPipe({id:'BANK.'+prefix+'.'+id,med:main.med,dn:main.dn,Q:main.Q/bank.count,pts:pts,name:bank.id+' 并联总管/支管 '+id,from:e&&end===0?e.tag:bank.id+'总管',to:e&&end===1?e.tag:bank.id+'总管'});p.scaleMain=main.id;if(e){p.connections=[{eq:e.tag,port:key,end:end,point:portW(e,key)}];const l=addLabel({html:end?'进水':'出水',pos:portW(e,key).add(V3(0,.18,0)),tag:e.tag,cls:'i',kind:'inst',maxD:8});l.portHint={eq:e.tag,text:end?'进水':'出水',pipe:p.id,end:end}}return p};
+  const rows=new Map();members.forEach(e=>{const z=e.g.position.z;if(!rows.has(z))rows.set(z,[]);rows.get(z).push(e)});const back=Math.min(...Array.from(rows.keys()));
+  add('feed', [source,V3(left,source.y,source.z),V3(left,h,source.z),V3(left,h,back)],feed);
+  const destination=cf?bottom:V3(bottom.x,bottom.y,bottom.z);
+  add('collect',[V3(right,low,back),V3(right,low,z0+.6),V3(destination.x,low,z0+.6),V3(destination.x,destination.y,z0+.6),destination],out);
+  let i=0;rows.forEach((units,z)=>{
+   add('fh'+i,[V3(left,h,z),V3(Math.max(...units.map(e=>e.g.position.x-(cf?e.R+.25:0))),h,z)],feed);
+   add('oh'+i,[V3(Math.min(...units.map(e=>e.g.position.x+(cf?e.R+.25:0))),low,z),V3(right,low,z)],out);
+   units.forEach(e=>{const a=portW(e,topKey),b=portW(e,botKey);if(cf){add('f'+e.tag,[V3(a.x-.25,h,z),V3(a.x-.25,a.y,z),a],feed,e,topKey,1);add('o'+e.tag,[b,V3(b.x+.25,b.y,z),V3(b.x+.25,low,z)],out,e,botKey,0)}else{add('f'+e.tag,[V3(a.x,h,z),a],feed,e,topKey,1);add('o'+e.tag,[b,V3(b.x,low,z)],out,e,botKey,0)}});i++;
+  });
+ });
+}
+const scalePlumb=plumb;plumb=function(eq,d,z){const r=scalePlumb(eq,d,z);if(SCALE_VIEW.building)scaleBankPlumb();return r};
+const scaleStep=applyStep;applyStep=function(st){const r=scaleStep(st);if(SCALE_VIEW.active)animatedPipes.forEach(p=>{if(p.scaleMain){const main=PIPES[p.scaleMain];p.on=main.on;p.dir=main.dir}});return r};
+
+const scaleModes=buildModes;buildModes=function(d,z){scaleModes(d,z);if(SCALE_VIEW.active)MODES.forEach(m=>m.steps.forEach(st=>animatedPipes.forEach(p=>{if(!p.scaleMain)return;if(st.flow.indexOf(p.scaleMain)>=0)st.flow.push(p.id);if(st.rev.indexOf(p.scaleMain)>=0)st.rev.push(p.id)})))};
+const scaleShadows=batchContactShadows;batchContactShadows=function(){
+ if(!SCALE_VIEW.building)return scaleShadows();const shadows=[];Object.keys(EQ).forEach(k=>{const e=EQ[k],parts=[];e.g.updateMatrixWorld(true);e.g.traverse(o=>{if(o.userData.blob)parts.push(o)});parts.forEach(o=>{shadows.push(new THREE.Box3().setFromObject(o));o.parent.remove(o);o.geometry.dispose()})});
+ if(ROOM.textures){const fx=SCALE_VIEW.site/1.1,fz=SCALE_VIEW.site*1.1;ROOM.textures.forEach(t=>{const c=t.image,x=c.getContext('2d');t.userData=t.userData||{};if(!t.userData.contactBase){const base=document.createElement('canvas');base.width=c.width;base.height=c.height;base.getContext('2d').drawImage(c,0,0);t.userData.contactBase=base}x.clearRect(0,0,c.width,c.height);x.drawImage(t.userData.contactBase,0,0);shadows.forEach(b=>x.drawImage(contactTexture.image,(b.min.x/fx+21)/43*c.width,(b.min.z/fz+10)/18*c.height,(b.max.x-b.min.x)/(43*fx)*c.width,(b.max.z-b.min.z)/(18*fz)*c.height));t.needsUpdate=true})}roomModelFloor();
+};
+function scaleConcentrateHeaders(){
+ ['RO-101','RO-201'].forEach((id,j)=>{const e=EQ[id],n=e.skid.nT,first=e.skid.nvs[0];if(n-first<2)return;const main=PIPES[j?'REC':'R1.c'],pre=j?'R2':'R1',last=e.ports['v'+(n-1)+'L'],y=j?last.y:1.45,x=j?last.x+.4:last.x;
+  const add=(suffix,pts,index)=>{const p=addPipe({id:pre+'.'+suffix,med:main.med,ss:true,dn:main.dn,Q:main.Q/(n-first),pts:pts,from:id+' 末段浓水',to:'末段浓水总管',name:(j?'二级':'一级')+'末段各壳浓水汇集'});p.scaleMain=main.id;if(index!==undefined)p.connections=[{eq:id,port:'v'+index+'L',end:0,point:portW(e,'v'+index+'L')}]};
+  add('ch',[V3(x,y,e.ports['v'+first+'L'].z),V3(x,y,last.z)]);for(let i=first;i<n-1;i++){const a=e.ports['v'+i+'L'].clone();add('cs'+i,[a,V3(x,y,a.z)],i)}
+ });
+}
+const scalePlumbHeaders=plumb;plumb=function(eq,d,z){const r=scalePlumbHeaders(eq,d,z);if(SCALE_VIEW.building)scaleConcentrateHeaders();return r};
+// 直管只有两个端截面；不先生成再丢弃上千个共线截面。弯管仍走原圆弧构造，默认档完全不变。
+const scaleAddPipe=addPipe;addPipe=function(o){
+ if(!SCALE_VIEW.building||o.pts.length!==2||o.pts[0].distanceTo(o.pts[1])<1e-5)return scaleAddPipe(o);
+ const requested=o.dn,dn=Math.min(requested,sizingPipeDN[o.id]||80),od=ODof(dn,o.ss),path=new THREE.LineCurve3(o.pts[0],o.pts[1]),length=path.getLength(),col=MEDIA[o.svc==='bw'?'bw':o.med].c,mat=MAT(col,o.ss?.55:.05,o.ss?.35:.5);
+ const tube=new THREE.Mesh(new THREE.TubeGeometry(path,1,od/2,12,false),mat);tube.userData.pipe=o.id;const dt=DASH.clone();dt.needsUpdate=true;dt.repeat.set(Math.max(1,length/.28),1);
+ const fm=new THREE.MeshBasicMaterial({map:dt,color:new THREE.Color(col).lerp(new THREE.Color(0xffffff),.55),transparent:true,depthWrite:false,opacity:.95}),flow=new THREE.Mesh(new THREE.TubeGeometry(path,1,od*.5475,8,false),fm);flow.visible=false;flow.userData.bw=o.svc==='bw';const g=new THREE.Group();g.add(tube);g.add(flow);PADD(g);
+ const poly=path.getSpacedPoints(Math.max(4,Math.ceil(length/.04))),cum=[0];for(let i=1;i<poly.length;i++)cum.push(cum[i-1]+poly[i].distanceTo(poly[i-1]));const p={pts:o.pts.map(v=>v.clone()),id:o.id,med:o.med,bw:o.svc==='bw',dn:dn,ss:!!o.ss,Q:o.Q||0,v:o.Q?RO.velAt(o.Q,dn):0,len:cum[cum.length-1],poly:poly,cum:cum,tube:tube,flow:flow,dt:dt,dir:1,on:false,valves:[],insts:[],name:o.name||o.id,od:od,from:o.from||'',to:o.to||''};if(requested>dn){p.sizingDN=requested;p.name+='（代表管径，实际水力须另校核）'}PIPES[o.id]=p;return p;
+};
+// 大档总览用同一观察方位拟合当前设备和完整平台；默认继续使用原总览函数。
+const scaleOverviewFrame=typeof overviewFrame==='function'?overviewFrame:null;
+if(scaleOverviewFrame)overviewFrame=function(){
+ if(!SCALE_VIEW.active)return scaleOverviewFrame();resize();scene.updateMatrixWorld(true);
+ const bounds=new THREE.Box3(),points=[];Object.values(EQ).forEach(e=>bounds.union(new THREE.Box3().setFromObject(e.g)));
+ if(ROOM.floor)bounds.union(new THREE.Box3().setFromObject(ROOM.floor));bounds.min.y=Math.min(-1,bounds.min.y);
+ for(const x of [bounds.min.x,bounds.max.x])for(const y of [bounds.min.y,bounds.max.y])for(const z of [bounds.min.z,bounds.max.z])points.push(V3(x,y,z));
+ const center=bounds.getCenter(V3()),base=center.clone(),dir=V3(.08,1.45,1.25).normalize(),right=V3().crossVectors(V3(0,1,0),dir).normalize(),up=V3().crossVectors(dir,right).normalize(),test=camera.clone(),q=V3(),w=stEl.clientWidth,h=stEl.clientHeight,top=94,bottom=h-104;
+ test.zoom=1;test.updateProjectionMatrix();let lo=8,hi=controls.maxDistance,best=null;
+ for(let n=0;n<26;n++){const distance=(lo+hi)/2;center.copy(base);
+  for(let pass=0;pass<3;pass++){test.position.copy(center).addScaledVector(dir,distance);test.lookAt(center);test.updateMatrixWorld(true);let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;points.forEach(p=>{q.copy(p).project(test);const x=(q.x+1)*w/2,y=(1-q.y)*h/2;x0=Math.min(x0,x);x1=Math.max(x1,x);y0=Math.min(y0,y);y1=Math.max(y1,y)});const k=2*distance*Math.tan(test.fov*Math.PI/360)/h;center.addScaledVector(right,(x0+x1-w)/2*k);center.addScaledVector(up,-(y0+y1-top-bottom)/2*k)}
+  test.position.copy(center).addScaledVector(dir,distance);test.lookAt(center);test.updateMatrixWorld(true);const fit=points.every(p=>{q.copy(p).project(test);const x=(q.x+1)*w/2,y=(1-q.y)*h/2;return x>=24&&x<=w-24&&y>=top&&y<=bottom&&q.z<1});if(fit){hi=distance;best=[test.position.x,test.position.y,test.position.z,center.x,center.y,center.z]}else lo=distance;
+ }
+ if(!best)return scaleOverviewFrame();best.zoom=1;return best;
+};
+// 机房信息同时展示当前3D的估算与平台面积，避免快捷显示100后仍写Q=11.4。
+const scaleRoomInfo=roomRenderInfo;roomRenderInfo=function(){const old=window.__sizing;try{if(SCALE_VIEW.active&&SCALE_VIEW.snapshot)window.__sizing=()=>scaleClone(SCALE_VIEW.snapshot);scaleRoomInfo()}finally{window.__sizing=old}if(SCALE_VIEW.room){const a=SCALE_VIEW.room,p=document.createElement('p');p.id='scaleRoomDisplay';p.title='J18：演示平台与需求估算分列；比例为假设，可改';p.textContent='当前3D '+SCALE_VIEW.q+' m³/h；演示平台 '+a.width.toFixed(1)+' × '+a.depth.toFixed(1)+' m，面积 '+a.area.toFixed(1)+' m²（演示留白，非需求面积）。';roomPanel.append(p)}};
+
+/* 桌面侧栏默认收起辅助面板；手机保留原布局与粒子位置。仅交互/断点变化时更新。 */
+const alongToggle=document.createElement('button');alongToggle.id='alongToggle';alongToggle.type='button';
+alongToggle.textContent='沿程水质 · 对数曲线 / 产水对照';alongToggle.setAttribute('aria-expanded','false');
+alongToggle.setAttribute('aria-controls','alongChart productCompare');alongPanel.prepend(alongToggle);alongPanel.classList.add('collapsed');
+alongToggle.onclick=()=>{const open=alongPanel.classList.contains('collapsed');alongPanel.classList.toggle('collapsed',!open);alongToggle.setAttribute('aria-expanded',String(open));if(open)requestAnimationFrame(()=>{if(ALONG.result)alongDraw()})};
+const dropLayoutStyle=document.createElement('style');dropLayoutStyle.textContent=`
+ #alongToggle{display:none}
+ @media(min-width:1001px){
+ #alongToggle{display:block;width:100%;padding:0;border:0;border-radius:0;background:transparent;color:var(--tx);font-size:13px;font-weight:600;text-align:left;line-height:22px;cursor:pointer}
+ #alongToggle::before{content:'▸ ';color:var(--mu)}#alongToggle[aria-expanded=true]::before{content:'▾ '}
+ #alongPanel>h3{display:none}#alongPanel.collapsed>:not(#alongToggle){display:none!important}
+ #alongPanel.collapsed{overflow:hidden}#opsPanel:not([open]){overflow:hidden}
+ }
+`;document.head.append(dropLayoutStyle);
+function placeDropParticles(){
+ const canvas=el('micc'),note=el('mict'),anchor=mobileLayout()?el('m3t'):el('pDrop').querySelector('.ctl');
+ if(anchor.nextElementSibling!==canvas||canvas.nextElementSibling!==note)anchor.after(canvas,note);
+}
+placeDropParticles();window.addEventListener('resize',placeDropParticles);
+
+/* Run F：仅新增构件采用静态顶点光照；大规模远景管体合批。原模型/原泵/全局画质不变。 */
+const RUN_F={pipes:null,rows:[],far:[],batched:false,dirty:true};
+// 新增件没有动态光源/阴影；在缓冲变化时烘焙现有三灯的漫反射和显示变换。
+// 保留法线起伏与配色，片元不再计算PBR、环境反射、ACES和sRGB幂函数。
+const runFLight1=sun.position.clone().normalize(),runFLight2=sun2.position.clone().normalize();
+function runFShade(g,start,end,color){
+ const n=g.attributes.normal,c=g.attributes.color,a=c.array,cache=new Map();
+ for(let i=start;i<end;i++){
+  const x=n.getX(i),y=n.getY(i),z=n.getZ(i),h=y*.5+.5;
+  const d1=Math.max(0,x*runFLight1.x+y*runFLight1.y+z*runFLight1.z)*sun.intensity,d2=Math.max(0,x*runFLight2.x+y*runFLight2.y+z*runFLight2.z)*sun2.intensity;
+  const r=color?color.r:a[i*3],v=color?color.g:a[i*3+1],b=color?color.b:a[i*3+2];
+  const key=[x,y,z,r,v,b].join(',');let hex=cache.get(key);
+  if(hex===undefined){
+   const ground=hemi.groundColor,sky=hemi.color,intensity=hemi.intensity;
+   hex=floorDisplayRGB(r*(intensity*(ground.r*(1-h)+sky.r*h)+d1*sun.color.r+d2*sun2.color.r),v*(intensity*(ground.g*(1-h)+sky.g*h)+d1*sun.color.g+d2*sun2.color.g),b*(intensity*(ground.b*(1-h)+sky.b*h)+d1*sun.color.b+d2*sun2.color.b),false);cache.set(key,hex);
+  }
+  a[i*3]=(hex>>>16)/255;a[i*3+1]=((hex>>>8)&255)/255;a[i*3+2]=(hex&255)/255;
+ }c.needsUpdate=true;
+}
+function runFMaterial(old){
+ const m=floorOutputMaterial(new THREE.MeshBasicMaterial({vertexColors:true,map:old.map||null,side:old.side}));
+ m.userData.runF=true;
+ if(m.map){
+  // 表盘仍用原512×256图集，只有表盘片元采样；不新增贴图。
+  m.onBeforeCompile=shader=>{floorOutputShader(shader);shader.fragmentShader=shader.fragmentShader.replace('#include <map_fragment>','#ifdef USE_MAP\nif(vUv.x>=.5){diffuseColor*=texture2D(map,vUv);}\n#endif')};
+  m.customProgramCacheKey=()=>'run-f-dial-display-v1';
+ }
+ old.dispose();return m;
+}
+const runFRoomUpdate=roomModelUpdate;roomModelUpdate=function(force){
+ runFRoomUpdate(force);ROOM_MODEL.meshes.forEach(b=>{
+  if(!b.mesh.material.userData.runF)b.mesh.material=runFMaterial(b.mesh.material);
+  const g=b.mesh.geometry,v=g.attributes.position.version;if(b.runFVersion===v)return;
+  b.runFVersion=v;runFShade(g,0,g.drawRange.count);
+ });
+};
+const runFPipeDetailUpdate=pipeDetailUpdate;pipeDetailUpdate=function(force){
+ runFPipeDetailUpdate(force);const mesh=PIPE_DETAIL.render;if(!mesh)return;
+ if(!mesh.material.userData.runF)mesh.material=runFMaterial(mesh.material);
+ const g=mesh.geometry,v=g.attributes.position.version;if(mesh.userData.runFVersion===v)return;
+ mesh.userData.runFVersion=v;runFShade(g,0,g.drawRange.count);
+};
+function runFPipeRelease(){
+ RUN_F.rows.forEach(r=>r.pipe.tube.visible=r.visible);
+ RUN_F.far.forEach(r=>{r.mesh.geometry=r.original;r.low.dispose()});RUN_F.far.length=0;
+ if(RUN_F.pipes){RUN_F.pipes.parent.remove(RUN_F.pipes);RUN_F.pipes.geometry.dispose();RUN_F.pipes.material.dispose()}
+ RUN_F.pipes=null;RUN_F.rows.length=0;RUN_F.batched=false;RUN_F.dirty=true;
+}
+function runFPipeBuild(){
+ if(typeof SCALE_VIEW==='undefined'||!SCALE_VIEW.active)return;
+ // 仅M5实例圆柱的远景径向细分降至8；距离沿用原设备LOD，回近景恢复原几何引用。
+ ['RO-101','RO-201','EDI-301'].forEach(id=>EQ[id].g.traverse(mesh=>{
+  const p=mesh.geometry&&mesh.geometry.parameters;if(!mesh.isInstancedMesh||!p||mesh.geometry.type!=='CylinderGeometry'||p.radialSegments<=8)return;
+  const low=new THREE.CylinderGeometry(p.radiusTop,p.radiusBottom,p.height,8,p.heightSegments,p.openEnded,p.thetaStart,p.thetaLength);
+  RUN_F.far.push({mesh:mesh,owner:EQ[id],item:MODEL_DETAILS.items.find(i=>i.owner===EQ[id]),original:mesh.geometry,low:low});
+ }));
+ let count=0;const list=animatedPipes.filter(p=>!p.standby&&p.tube.parent);
+ list.forEach(p=>{const g=p.tube.geometry;count+=g.index?g.index.count:g.attributes.position.count});
+ const g=new THREE.BufferGeometry();['position','normal','color'].forEach(k=>g.setAttribute(k,new THREE.BufferAttribute(new Float32Array(count*3),3)));
+ let offset=0;scene.updateMatrixWorld(true);
+ list.forEach(p=>{
+  const mesh=p.tube,source=mesh.geometry,flat=(source.index?source.toNonIndexed():source.clone()).applyMatrix4(mesh.matrixWorld),a=flat.attributes.position,n=a.count;
+  g.attributes.position.array.set(a.array,offset*3);g.attributes.normal.array.set(flat.attributes.normal.array,offset*3);
+  const row={pipe:p,first:offset,end:offset+n,visible:mesh.visible};RUN_F.rows.push(row);offset+=n;flat.dispose();
+ });
+ const mesh=new THREE.Mesh(g,runFMaterial(new THREE.MeshBasicMaterial()));mesh.name='规模管体 顶点光照合批';mesh.userData={kind:'scalePipeBatch',accessory:false};mesh.visible=false;
+ g.computeBoundingSphere();mesh.updateMatrix();mesh.matrixAutoUpdate=false;PADD(mesh);RUN_F.pipes=mesh;
+ RUN_F.rows.forEach(r=>{r.pick=Object.create(mesh);r.pick.parent=mesh;r.pick.userData={pipe:r.pipe.id}});
+ mesh.raycast=function(rc,hits){if(!mesh.visible)return;const start=hits.length;THREE.Mesh.prototype.raycast.call(mesh,rc,hits);for(let i=start;i<hits.length;i++){const row=RUN_F.rows.find(r=>hits[i].faceIndex*3>=r.first&&hits[i].faceIndex*3<r.end);if(row)hits[i].object=row.pick}};
+}
+function runFPipeUpdate(){
+ const f=RUN_F;if(!f.pipes)return;
+ f.far.forEach(r=>{const near=SECTION.on||r.owner.cutOn||r.item&&r.item.on;r.mesh.geometry=near?r.original:r.low});
+ // 仅远景且所有管体不透明时合批。近景/交互立即恢复原对象与原材质。
+ const on=camera.position.distanceToSquared(controls.target)>=18*18&&!PIPE_INTERACTION.trace&&!PIPE_INTERACTION.active&&!SECTION.on&&!DROP.active&&!UI.sel&&(!OPS.kind||OPS.kind==='normal')&&f.rows.every(r=>!r.pipe.hiddenStandby&&!r.pipe.tube.material.transparent&&r.pipe.tube.material.opacity>=.99);
+ if(on!==f.batched){f.batched=on;f.rows.forEach(r=>r.pipe.tube.visible=on?false:r.visible);f.pipes.visible=on}
+ if(on&&f.dirty){const g=f.pipes.geometry;f.rows.forEach(r=>runFShade(g,r.first,r.end,r.pipe.tube.material.color));f.dirty=false}
+}
+const runFLOD=updateModelDetails;updateModelDetails=function(force){runFLOD(force);runFPipeUpdate()};
+const runFFade=fadePipes;fadePipes=function(force){runFFade(force);runFPipeUpdate()};
+const runFStep=applyStep;applyStep=function(s){const r=runFStep(s);RUN_F.dirty=true;runFPipeUpdate();return r};
+const runFRebuild=rebuild;rebuild=function(){runFPipeRelease();const r=runFRebuild();runFPipeBuild();runFPipeUpdate();return r};
+window.__runF={update:runFPipeUpdate,state:()=>({batched:RUN_F.batched,pipes:RUN_F.rows.length,lowArrays:RUN_F.far.filter(r=>r.mesh.geometry===r.low).length,room:ROOM_MODEL.meshes.map(b=>b.mesh.material.type),detail:PIPE_DETAIL.render&&PIPE_DETAIL.render.material.type})};
+// 安装包装层后仅重建一次；后续共用原生命周期，不增加帧循环或定时器。
+rebuild();
 </script></body></html>
